@@ -1,0 +1,76 @@
+{
+  "name": "compass-map",
+  "displayName": "Compass \u00e2\u20ac\u201d Code Map",
+  "description": "A fast, deterministic map of your codebase: where you are, what holds it up, and what really belongs together.",
+  "version": "0.1.0",
+  "publisher": "gigi-didberidze",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Gigi-Didberidze/compass"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "code map",
+    "dependency graph",
+    "architecture",
+    "treemap",
+    "navigation"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "compass.openMap",
+        "title": "Open Map",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.reindex",
+        "title": "Reindex Workspace",
+        "category": "Compass"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "compass.openMap",
+        "key": "ctrl+alt+m",
+        "mac": "cmd+alt+m"
+      }
+    ],
+    "configuration": {
+      "title": "Compass",
+      "properties": {
+        "compass.indexerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a compass-indexer binary. Leave empty to use the bundled one."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node --test --experimental-strip-types test/*.test.ts",
+    "test:integration": "node test-integration/runTest.mjs",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.1.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
