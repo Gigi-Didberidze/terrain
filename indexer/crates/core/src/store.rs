@@ -6,12 +6,13 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 
 const SCHEMA_VERSION: i64 = 3;
+const SNAPSHOT_KEY: &str = "files.snapshot";
 
 pub struct Store {
     conn: Connection,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FileRow {
     pub path: String,
     pub hash: [u8; 32],
@@ -159,6 +160,20 @@ impl Store {
         )
     }
 
+    /// Writes the whole file list as one blob. Reading one blob is several times faster than
+    /// 100k rows, which is what the warm start (budget 500 ms) needs. Rows stay authoritative:
+    /// a stale snapshot only makes discovery re-check more files.
+    pub fn save_snapshot(&self, rows: &[FileRow]) -> Result<()> {
+        let blob = postcard::to_allocvec(rows)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        self.set_kv(SNAPSHOT_KEY, &blob)
+    }
+
+    pub fn load_snapshot(&self) -> Option<Vec<FileRow>> {
+        let blob = self.kv(SNAPSHOT_KEY).ok()??;
+        postcard::from_bytes(&blob).ok()
+    }
+
     pub fn kv(&self, key: &str) -> Result<Option<Vec<u8>>> {
         self.conn
             .query_row("SELECT data FROM kv WHERE key = ?1", [key], |r| r.get(0))
@@ -197,5 +212,22 @@ mod tests {
         s.write_batch(&[], &[], &["a/b.rs".into()]).unwrap();
         assert!(s.load_files().unwrap().is_empty());
         assert_eq!(s.gc_facts().unwrap(), 1);
+    }
+
+    #[test]
+    fn snapshot_round_trips() {
+        let s = Store::open_in_memory().unwrap();
+        assert!(s.load_snapshot().is_none());
+        let rows = vec![FileRow {
+            path: "x.py".into(),
+            hash: [1; 32],
+            size: 2,
+            mtime: 3,
+            loc: 4,
+            lang: Lang::Python,
+            flags: 5,
+        }];
+        s.save_snapshot(&rows).unwrap();
+        assert_eq!(s.load_snapshot().unwrap(), rows);
     }
 }

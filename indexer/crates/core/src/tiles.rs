@@ -28,6 +28,8 @@ pub const MIN_PX: f64 = 3.0;
 /// File side, in pixels, from which its symbols are drawn (semantic zoom).
 pub const SYMBOL_PX: f64 = 56.0;
 pub const MAX_ZOOM: u32 = 22;
+/// Items per tile. About 12–20 tiles cover a viewport, keeping the webview near 50k items.
+pub const TILE_ITEM_LIMIT: usize = 4096;
 
 /// Per-node lens values packed into each item.
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -46,6 +48,34 @@ pub struct TileItem {
     pub depth: u8,
     pub flags: u16,
     pub hidden: u32,
+}
+
+struct Pending {
+    area: f64,
+    slot: u32,
+    depth: u8,
+    rect: Rect,
+    symbol: bool,
+}
+
+impl PartialEq for Pending {
+    fn eq(&self, o: &Self) -> bool {
+        self.cmp(o) == std::cmp::Ordering::Equal
+    }
+}
+impl Eq for Pending {}
+impl PartialOrd for Pending {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(o))
+    }
+}
+impl Ord for Pending {
+    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+        // Max-heap on area; ties broken by slot for determinism (smaller slot first).
+        self.area
+            .total_cmp(&o.area)
+            .then_with(|| o.slot.cmp(&self.slot))
+    }
 }
 
 pub fn tile_rect(z: u32, x: u32, y: u32) -> Rect {
@@ -67,13 +97,40 @@ pub fn query(
     let bounds = tile_rect(z, x, y);
     let px_per_unit = TILE_PX * (1u64 << z) as f64;
     let mut out = Vec::new();
-    let mut stack: Vec<(u32, u8)> = vec![(Graph::ROOT, 0)];
-    while let Some((slot, depth)) = stack.pop() {
+    // Largest first, so when `limit` cuts, the items that remain are the ones that matter, and
+    // every container comes before its contents.
+    let mut heap = std::collections::BinaryHeap::new();
+    let root = layout.rects[Graph::ROOT as usize];
+    heap.push(Pending {
+        area: f64::INFINITY,
+        slot: Graph::ROOT,
+        depth: 0,
+        rect: root,
+        symbol: false,
+    });
+    while let Some(Pending {
+        slot,
+        depth,
+        rect: r,
+        symbol,
+        ..
+    }) = heap.pop()
+    {
         if out.len() >= limit {
             break;
         }
         let node = g.node(slot);
-        let r = layout.rects[slot as usize];
+        if symbol {
+            out.push(TileItem {
+                slot,
+                rect: r,
+                kind: node.kind,
+                depth,
+                flags: node.flags,
+                hidden: 0,
+            });
+            continue;
+        }
         if r.is_empty() || !r.intersects(&bounds) {
             continue;
         }
@@ -88,15 +145,25 @@ pub fn query(
                     let cr = layout.rects[c as usize];
                     if cr.w * px_per_unit < MIN_PX || cr.h * px_per_unit < MIN_PX {
                         hidden += layout.file_counts[c as usize];
-                    } else {
-                        stack.push((
-                            c,
-                            if collapsed {
-                                depth
-                            } else {
-                                depth.saturating_add(1)
-                            },
-                        ));
+                    } else if cr.intersects(&bounds) {
+                        let d = if collapsed {
+                            depth
+                        } else {
+                            depth.saturating_add(1)
+                        };
+                        // Collapsed dirs share their child's rect: keep the parent first.
+                        let area = if collapsed {
+                            f64::INFINITY
+                        } else {
+                            cr.w * cr.h
+                        };
+                        heap.push(Pending {
+                            area,
+                            slot: c,
+                            depth: d,
+                            rect: cr,
+                            symbol: false,
+                        });
                     }
                 }
                 if !collapsed && slot != Graph::ROOT {
@@ -120,31 +187,25 @@ pub fn query(
                     hidden: 0,
                 });
                 if r.w * px_per_unit >= SYMBOL_PX && r.h * px_per_unit >= SYMBOL_PX {
-                    let syms = layout.symbols(g, slot).to_vec();
-                    for (s, sr) in syms {
-                        if out.len() >= limit {
-                            break;
-                        }
+                    for &(s, sr) in layout.symbols(g, slot) {
                         if !sr.intersects(&bounds)
                             || sr.w * px_per_unit < MIN_PX
                             || sr.h * px_per_unit < MIN_PX
                         {
                             continue;
                         }
-                        let sn = g.node(s);
                         let mut d = depth.saturating_add(1);
-                        let mut p = sn.parent;
+                        let mut p = g.node(s).parent;
                         while p != slot && p != NONE {
                             d = d.saturating_add(1);
                             p = g.node(p).parent;
                         }
-                        out.push(TileItem {
+                        heap.push(Pending {
+                            area: sr.w * sr.h,
                             slot: s,
-                            rect: sr,
-                            kind: sn.kind,
                             depth: d,
-                            flags: sn.flags,
-                            hidden: 0,
+                            rect: sr,
+                            symbol: true,
                         });
                     }
                 }
@@ -275,6 +336,30 @@ mod tests {
             }
         }
         assert!(found);
+    }
+
+    #[test]
+    fn limit_keeps_the_largest_items_and_parents_first() {
+        let g = graph();
+        let mut l = Layout::compute(&g);
+        let all = query(&g, &mut l, 0, 0, 0, 100_000);
+        let some = query(&g, &mut l, 0, 0, 0, 20);
+        assert_eq!(some.len(), 20);
+        let min_kept = some
+            .iter()
+            .map(|i| i.rect.w * i.rect.h)
+            .fold(f64::INFINITY, f64::min);
+        let bigger_dropped = all
+            .iter()
+            .filter(|i| !some.iter().any(|k| k.slot == i.slot))
+            .any(|i| i.rect.w * i.rect.h > min_kept + 1e-15);
+        assert!(!bigger_dropped);
+        for (i, it) in all.iter().enumerate() {
+            let parent = g.node(it.slot).parent;
+            if let Some(pi) = all.iter().position(|o| o.slot == parent) {
+                assert!(pi < i, "parent after child");
+            }
+        }
     }
 
     #[test]

@@ -163,7 +163,11 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
         }
         method::MAP_TILES => {
             let tp: p::TilesParams = parse_params(params)?;
+            let t = Instant::now();
             let e = s.read();
+            let locked = t.elapsed();
+            e.with_layout(|_| ());
+            let laid = t.elapsed();
             let b64 = base64::engine::general_purpose::STANDARD;
             let tiles = tp
                 .tiles
@@ -175,7 +179,16 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
                     y: k.y,
                     data: b64.encode(e.tile(k.z, k.x, k.y)),
                 })
-                .collect();
+                .collect::<Vec<_>>();
+            if std::env::var_os("COMPASS_TRACE").is_some() {
+                eprintln!(
+                    "tiles: {} tiles, lock {:.0} ms, layout {:.0} ms, total {:.0} ms",
+                    tiles.len(),
+                    locked.as_secs_f64() * 1000.0,
+                    laid.as_secs_f64() * 1000.0,
+                    t.elapsed().as_secs_f64() * 1000.0
+                );
+            }
             to_value(p::TilesResult {
                 epoch: e.graph.epoch,
                 tiles,

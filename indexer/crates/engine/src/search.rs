@@ -17,6 +17,9 @@ struct Entry {
     mask: u64,
 }
 
+/// Search entries built off the lock.
+pub struct Prepared(Vec<Entry>);
+
 #[derive(Default)]
 pub struct SearchIndex {
     entries: Vec<Entry>,
@@ -57,23 +60,43 @@ impl SearchIndex {
         self.entries.is_empty()
     }
 
-    pub fn upsert(&mut self, slot: u32, name: &str, context: &str) {
+    fn entry(slot: u32, name: &str, context: &str) -> Entry {
         let lower: Box<[u8]> = name.to_ascii_lowercase().into_bytes().into();
         let mask = char_mask(&lower) | char_mask(context.as_bytes());
-        let e = Entry {
+        Entry {
             slot,
             mask,
             orig: name.as_bytes().into(),
             name: lower,
             context: context.to_ascii_lowercase().into_bytes().into(),
-        };
-        match self.pos.get(&slot) {
+        }
+    }
+
+    fn put(&mut self, e: Entry) {
+        match self.pos.get(&e.slot) {
             Some(&i) => self.entries[i] = e,
             None => {
-                self.pos.insert(slot, self.entries.len());
+                self.pos.insert(e.slot, self.entries.len());
                 self.entries.push(e);
             }
         }
+    }
+
+    /// Builds entries in parallel, off the engine lock, for [`SearchIndex::extend`].
+    pub fn prepare<'a>(items: impl ParallelIterator<Item = (u32, &'a str, &'a str)>) -> Prepared {
+        Prepared(items.map(|(s, n, c)| Self::entry(s, n, c)).collect())
+    }
+
+    pub fn extend(&mut self, p: Prepared) {
+        self.entries.reserve(p.0.len());
+        self.pos.reserve(p.0.len());
+        for e in p.0 {
+            self.put(e);
+        }
+    }
+
+    pub fn upsert(&mut self, slot: u32, name: &str, context: &str) {
+        self.put(Self::entry(slot, name, context));
     }
 
     pub fn remove(&mut self, slot: u32) {

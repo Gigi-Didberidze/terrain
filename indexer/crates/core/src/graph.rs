@@ -65,6 +65,18 @@ impl Graph {
 
     pub const ROOT: u32 = 0;
 
+    /// Reserves room for about `files` more files (and their directories) before a bulk load.
+    pub fn reserve(&mut self, files: usize) {
+        let n = files + files / 4;
+        self.nodes.reserve(n);
+        self.children.reserve(n);
+        self.out.reserve(n);
+        self.inn.reserve(n);
+        self.by_id.reserve(n);
+        self.by_path.reserve(n);
+        self.paths.reserve(n);
+    }
+
     fn push(&mut self, node: Node) -> u32 {
         let slot = self.nodes.len() as u32;
         self.by_id.insert(node.id, slot);

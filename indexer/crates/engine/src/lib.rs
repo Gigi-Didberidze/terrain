@@ -13,7 +13,7 @@ use parking_lot::{Mutex, RwLock};
 use rayon::prelude::*;
 use scan::{Discovered, DEFAULT_SIZE_CAP};
 use search::SearchIndex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -64,12 +64,14 @@ pub struct Engine {
     pub options: Options,
     pub graph: Graph,
     pub search: SearchIndex,
-    /// Last known state of every file, mirrored in the store.
-    pub files: HashMap<String, FileRow>,
+    /// Last known content state of every file, indexed by slot; mirrored in the store.
+    meta: Vec<FileMeta>,
     layout: Mutex<Option<Layout>>,
     store: Option<Mutex<Store>>,
     pub phase: Phase,
     pub timings: Timings,
+    /// Set once any tile has been served (lets the warm start prioritise the first view).
+    tiles_served: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -82,6 +84,13 @@ pub struct Timings {
 }
 
 pub type Shared = Arc<RwLock<Engine>>;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FileMeta {
+    pub hash: [u8; 32],
+    pub size: u64,
+    pub mtime: i64,
+}
 
 #[derive(Clone, Debug)]
 pub struct NodeInfo {
@@ -112,11 +121,12 @@ impl Engine {
             options,
             graph: Graph::new(&name),
             search: SearchIndex::default(),
-            files: HashMap::new(),
+            meta: Vec::new(),
             layout: Mutex::new(None),
             store: store.map(Mutex::new),
             phase: Phase::Idle,
             timings: Timings::default(),
+            tiles_served: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -124,13 +134,46 @@ impl Engine {
         Arc::new(RwLock::new(self))
     }
 
-    fn put_file(&mut self, row: FileRow) {
+    /// Adds or updates a file. `index` adds it to search right away; the warm start skips that
+    /// and indexes everything in one parallel pass after the map is up.
+    fn put_file(&mut self, row: &FileRow, index: bool) {
         let slot = self
             .graph
-            .upsert_file(&row.path, row.loc, row.lang, row.flags);
-        let name = row.path.rsplit('/').next().unwrap_or(&row.path).to_string();
-        self.search.upsert(slot, &name, &row.path);
-        self.files.insert(row.path.clone(), row);
+            .upsert_file(&row.path, row.loc, row.lang, row.flags) as usize;
+        if self.meta.len() <= slot {
+            self.meta.resize(slot + 1, FileMeta::default());
+        }
+        self.meta[slot] = FileMeta {
+            hash: row.hash,
+            size: row.size,
+            mtime: row.mtime,
+        };
+        if index {
+            let name = row.path.rsplit('/').next().unwrap_or(&row.path);
+            self.search.upsert(slot as u32, name, &row.path);
+        }
+    }
+
+    /// Content state of a file on the map.
+    pub fn meta_of(&self, path: &str) -> Option<&FileMeta> {
+        let slot = self.graph.slot_of_path(path)?;
+        (self.graph.node(slot).kind == NodeKind::File)
+            .then(|| self.meta.get(slot as usize))
+            .flatten()
+    }
+
+    /// Adds every file to the search index in one parallel pass.
+    fn index_all_files(shared: &Shared) {
+        let items: Vec<(u32, String)> = {
+            let e = shared.read();
+            e.graph.files().map(|(s, p)| (s, p.to_string())).collect()
+        };
+        let entries = search::SearchIndex::prepare(
+            items
+                .par_iter()
+                .map(|(s, p)| (*s, p.rsplit('/').next().unwrap_or(p), p.as_str())),
+        );
+        shared.write().search.extend(entries);
     }
 
     fn drop_file(&mut self, path: &str) {
@@ -141,7 +184,34 @@ impl Engine {
             self.search.remove(slot);
         }
         self.graph.remove_file(path);
-        self.files.remove(path);
+    }
+
+    /// Current file list as store rows.
+    fn file_rows(&self) -> Vec<FileRow> {
+        self.graph
+            .files()
+            .map(|(slot, path)| {
+                let n = self.graph.node(slot);
+                let m = self.meta.get(slot as usize).copied().unwrap_or_default();
+                FileRow {
+                    path: path.to_string(),
+                    hash: m.hash,
+                    size: m.size,
+                    mtime: m.mtime,
+                    loc: n.loc,
+                    lang: n.lang,
+                    flags: n.flags & !flags::ALIVE,
+                }
+            })
+            .collect()
+    }
+
+    fn save_snapshot(&self) {
+        if let Some(store) = &self.store {
+            if let Err(e) = store.lock().save_snapshot(&self.file_rows()) {
+                eprintln!("snapshot write failed: {e}");
+            }
+        }
     }
 
     fn persist(&self, rows: &[FileRow], deleted: &[String]) {
@@ -166,8 +236,10 @@ impl Engine {
 
     /// One packed tile.
     pub fn tile(&self, z: u32, x: u32, y: u32) -> Vec<u8> {
+        self.tiles_served
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         self.with_layout(|layout| {
-            let items = tiles::query(&self.graph, layout, z, x, y, 50_000);
+            let items = tiles::query(&self.graph, layout, z, x, y, tiles::TILE_ITEM_LIMIT);
             tiles::pack(&self.graph, layout, z, x, y, &items, |_| {
                 LensValues::default()
             })
@@ -239,20 +311,47 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
         let e = shared.read();
         e.store
             .as_ref()
-            .and_then(|s| s.lock().load_files().ok())
+            .and_then(|s| {
+                let s = s.lock();
+                s.load_snapshot().or_else(|| s.load_files().ok())
+            })
             .unwrap_or_default()
     };
     let warm = !rows.is_empty();
+    let trace = std::env::var_os("COMPASS_TRACE").is_some();
+    if trace {
+        eprintln!("warm: load_files {} rows {:.0} ms", rows.len(), ms(t0));
+    }
     if warm {
+        let tp = Instant::now();
         let mut e = shared.write();
-        for r in rows {
-            e.put_file(r);
+        e.graph.reserve(rows.len());
+        for r in &rows {
+            e.put_file(r, false);
         }
+        if trace {
+            eprintln!("warm: put_file loop {:.0} ms", ms(tp));
+        }
+        // Lay out now so the first tile request doesn't pay for it.
+        e.with_layout(|_| ());
         e.timings.warm_load_ms = ms(t0);
         e.timings.first_map_ms = Some(ms(t0));
         let epoch = e.graph.epoch;
+        let served = e.tiles_served.clone();
         drop(e);
         events.changed(epoch, true);
+        // Give the first view priority: reconciliation (search, discovery) competes for CPU and
+        // the engine lock, so it waits until the first tiles went out, or 300 ms at most.
+        let wait = Instant::now();
+        while !served.load(std::sync::atomic::Ordering::Relaxed) && wait.elapsed().as_millis() < 300
+        {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let ts = Instant::now();
+        Engine::index_all_files(shared);
+        if trace {
+            eprintln!("warm: search index {:.0} ms", ms(ts));
+        }
     }
 
     // Discover.
@@ -263,7 +362,7 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
     let discovered = scan::discover(&root, |batch| {
         let mut e = shared.write();
         for d in batch {
-            let known = e.files.get(&d.path);
+            let known = e.meta_of(&d.path).copied();
             let unchanged = known.is_some_and(|r| r.size == d.size && r.mtime == d.mtime);
             if known.is_none() {
                 // Provisional node so the map is usable before hashing finishes.
@@ -277,7 +376,7 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
                     lang,
                     flags: 0,
                 };
-                e.put_file(row);
+                e.put_file(&row, true);
             }
             if !unchanged {
                 to_scan.push(d.clone());
@@ -299,10 +398,10 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
     {
         let mut e = shared.write();
         let gone: Vec<String> = e
-            .files
-            .keys()
-            .filter(|p| !seen.contains(*p))
-            .cloned()
+            .graph
+            .files()
+            .filter(|(_, p)| !seen.contains(*p))
+            .map(|(_, p)| p.to_string())
             .collect();
         for p in &gone {
             e.drop_file(p);
@@ -321,10 +420,13 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
     let mut done = 0u64;
     events.progress(Phase::Hash, 0, total);
     for chunk in to_scan.chunks(BATCH) {
+        let tc = Instant::now();
         let scanned: Vec<(Discovered, scan::Scanned)> = chunk
             .par_iter()
             .filter_map(|d| scan::scan_file(&root, d, size_cap, false).map(|s| (d.clone(), s)))
             .collect();
+        let scan_ms = ms(tc);
+        let tm = Instant::now();
         let mut e = shared.write();
         let mut rows = Vec::with_capacity(scanned.len());
         for (d, s) in scanned {
@@ -338,9 +440,17 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
                 flags: s.flags,
             };
             rows.push(row.clone());
-            e.put_file(row);
+            e.put_file(&row, true);
         }
+        let merge_ms = ms(tm);
+        let tp = Instant::now();
         e.persist(&rows, &[]);
+        if trace {
+            eprintln!(
+                "hash batch: scan {scan_ms:.0} ms, merge {merge_ms:.0} ms, persist {:.0} ms",
+                ms(tp)
+            );
+        }
         done += chunk.len() as u64;
         let epoch = e.graph.epoch;
         drop(e);
@@ -352,6 +462,7 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
     e.timings.hash_ms = ms(t0);
     e.timings.total_ms = ms(t0);
     e.phase = Phase::Idle;
+    e.save_snapshot();
     let _ = discovered;
     let t = e.timings.clone();
     drop(e);
@@ -391,7 +502,7 @@ pub fn apply_changes(shared: &Shared, paths: &[String], events: &dyn Events) -> 
     for (p, r) in work {
         match r {
             Some((d, s)) => {
-                if e.files.get(&p).is_some_and(|old| old.hash == s.hash) {
+                if e.meta_of(&p).is_some_and(|old| old.hash == s.hash) {
                     continue;
                 }
                 let row = FileRow {
@@ -404,10 +515,10 @@ pub fn apply_changes(shared: &Shared, paths: &[String], events: &dyn Events) -> 
                     flags: s.flags,
                 };
                 rows.push(row.clone());
-                e.put_file(row);
+                e.put_file(&row, true);
             }
             None => {
-                if e.files.contains_key(&p) {
+                if e.meta_of(&p).is_some() {
                     e.drop_file(&p);
                     gone.push(p);
                 }
