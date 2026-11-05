@@ -1,0 +1,31 @@
+name: bench-nightly
+
+# Full benchmark corpus on a Linux runner. Hosted runners have no GPU, so this covers the
+# indexer budgets (cold/warm index, incremental, search, memory); renderer frame budgets are
+# measured with webview/harness/perf.mjs on a machine with a GPU.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: indexer }
+      - run: cargo build --release --manifest-path indexer/Cargo.toml -p compass-indexer
+      - name: Clone corpus (pinned commits, shallow)
+        run: node bench/clone.mjs linux vscode django
+      - name: Run benchmarks (soft until M2)
+        run: node bench/run.mjs --repos fixtures,django,vscode,linux
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-nightly-${{ github.run_id }}
+          path: bench/results/latest.json

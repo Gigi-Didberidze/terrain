@@ -18,12 +18,17 @@ if (wanted.length && selected.length !== wanted.length) {
 }
 
 const git = (cwd, ...a) => execFileSync("git", a, { cwd, stdio: "inherit" });
-const gitOut = (cwd, ...a) => execFileSync("git", a, { cwd, encoding: "utf8" }).trim();
+const gitOut = (cwd, ...a) => execFileSync("git", a, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
 
 for (const r of selected) {
   const dir = join(here, "corpus", r.name);
   if (existsSync(join(dir, ".git"))) {
-    const head = gitOut(dir, "rev-parse", "HEAD");
+    let head = "";
+    try {
+      head = gitOut(dir, "rev-parse", "HEAD");
+    } catch {
+      // Interrupted earlier fetch: no HEAD yet.
+    }
     if (head === r.commit) {
       console.log(`${r.name}: already at ${r.commit.slice(0, 12)}`);
       continue;
@@ -36,5 +41,11 @@ for (const r of selected) {
   console.log(`${r.name}: fetching ${r.tag} (${r.commit.slice(0, 12)})${history ? " with history" : ""}`);
   const depth = history ? [] : ["--depth", "1"];
   git(dir, "-c", "core.longpaths=true", "fetch", "-q", ...depth, "origin", r.commit);
-  git(dir, "-c", "core.longpaths=true", "-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD");
+  if (process.platform === "win32") {
+    // NTFS can't create files named after reserved devices (linux has aux.c, aux.h).
+    // Leave them out with a sparse checkout; this drops a handful of files, see bench/README.md.
+    git(dir, "sparse-checkout", "set", "--no-cone", "/*", "!**/aux.*", "!**/con.*", "!**/prn.*", "!**/nul.*", "!**/com[1-9].*", "!**/lpt[1-9].*");
+  }
+  const ntfs = process.platform === "win32" ? ["-c", "core.protectNTFS=false"] : [];
+  git(dir, "-c", "core.longpaths=true", ...ntfs, "-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD");
 }

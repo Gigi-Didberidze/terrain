@@ -46,9 +46,25 @@ Each entry: the decision, the alternatives, the reason.
 - Alternatives: hash every file on every start (BLAKE3 is fast).
 - Reason: Reading 60k+ files costs seconds on a cold disk cache even when nothing changed. Size+mtime is the same shortcut git uses. The content hash stays the cache key, so branch switches reuse parse results whenever content matches.
 
-## D12 — Tile item coordinates are tile-relative f32; the GPU batch is rebased on every rebuild
-- Alternatives: absolute world f32 coordinates.
-- Reason: At the deepest zoom a symbol is about 1e-7 world units wide, below f32 resolution near 1.0. Tile-relative coordinates decode exactly into f64 world positions. The renderer uploads positions relative to an origin at the viewport corner, so f32 on the GPU stays precise at any zoom.
+## D12 — Tile item coordinates are tile-relative f32, and stay tile-relative on the GPU
+- Alternatives: absolute world f32 coordinates; one global batch rebased to the viewport.
+- Reason: At the deepest zoom a symbol is about 1e-7 world units wide, below f32 resolution near 1.0. Tile-relative coordinates decode exactly into f64 world positions. Since D15 each tile's GPU batch keeps them tile-relative too, so f32 stays precise at any zoom without rebasing. (Superseded: the first version rebuilt one global batch rebased to the viewport.)
+
+## D15 — One GPU batch per tile, scissored to the tile; selection drawn as an overlay
+- Alternatives: one global scene of up to 50k deduplicated items, rebuilt when any tile arrives (the first M1 version).
+- Reason: Profiling linux at file level showed the global rebuild (dedup, sort, quadtree, upload of 50k items) costing up to 290 ms per arriving tile: 44.6 fps with 19 frames over 32 ms. Per-tile batches are built once (and only within a per-frame budget), panning changes only uniforms, and the scissor keeps painter's order correct without cross-tile sorting. Hover, pins, selection and "you are here" are a small overlay, so they never rebuild tiles. Result: 58–60 fps, draw CPU p90 about 5–7 ms.
+
+## D16 — Warm start reads a single file-list snapshot and gives the first view priority
+- Alternatives: read 86k rows from SQLite; start reconciliation right away.
+- Reason: Profiling the linux warm start: row loading (58–290 ms) plus graph insertion (240–420 ms) put the map at 491–740 ms against a 500 ms budget. A postcard snapshot written when indexing goes idle loads in about 40–55 ms, the layout is computed before the map is announced, and search indexing and discovery wait (at most 300 ms) for the first tiles to be served. Result: 222–383 ms. Rows stay authoritative; a stale snapshot only makes discovery re-check more files.
+
+## D17 — On Windows, cold-index time is bound by antivirus file scanning; measure it, don't hide it
+- Alternatives: report only warm-cache numbers; add Defender exclusions in the bench.
+- Reason: With Windows Defender real-time protection on, a plain Python reader needs 217 s (399 files/s) to read linux once. The indexer's 98–308 s cold runs track that baseline, and its compute (parse-free M1 layer) is milliseconds. Adding exclusions would change the user's security settings. Compass mitigates instead: the map is usable from discovery (about 0.6 s, sizes estimated), warm starts never re-read unchanged files (D11), and CI measures cold budgets on Linux runners (`bench-nightly.yml`).
+
+## D18 — M1 gate evaluated on this laptop, below the reference machine
+- Alternatives: block M2 until a reference machine (8 cores, 16 GB) is available.
+- Reason: Only an i5-1135G7 (4C/8T, 8 GB, Iris Xe) is available. All M1 budgets are met here except the strict "no frame over 32 ms": 58–60 fps, most runs show 0–3 single missed vsyncs in 300 frames while tiles stream in. The remaining per-frame CPU is under 8 ms at p90, so the misses come from the machine's variance (identical runs differ 2×), not from a structural cost. Proceeding to M2; the frame budget is re-checked with `webview/harness/perf.mjs` on each milestone and recorded in PROGRESS.md.
 
 ## D13 — Lines of code = non-blank lines
 - Alternatives: physical lines; or code lines excluding comments.
