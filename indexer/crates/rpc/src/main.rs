@@ -1,6 +1,7 @@
 //! compass-indexer: the out-of-process indexer for the Compass VS Code extension.
 //! Speaks JSON-RPC 2.0 over stdio with LSP-style framing.
 
+mod cli;
 mod protocol;
 mod rpc;
 mod server;
@@ -13,6 +14,10 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--version") {
         println!("compass-indexer {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if args.get(1).map(String::as_str) == Some("index") {
+        cli::index(&args[2..]);
         return;
     }
 

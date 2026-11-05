@@ -55,7 +55,6 @@ impl Outbox {
         let _ = self.0.send(serde_json::to_vec(&msg).expect("serialisable"));
     }
 
-    #[allow(dead_code)] // first used by index progress in M1
     pub fn notify<T: Serialize>(&self, method: &str, params: &T) {
         let msg = serde_json::json!({ "jsonrpc": "2.0", "method": method, "params": params });
         let _ = self.0.send(serde_json::to_vec(&msg).expect("serialisable"));

@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum IndexPhase {
@@ -23,6 +23,26 @@ pub enum IndexPhase {
     History,
     #[serde(rename = "idle")]
     Idle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum NodeKind {
+    #[serde(rename = "dir")]
+    Dir,
+    #[serde(rename = "file")]
+    File,
+    #[serde(rename = "module")]
+    Module,
+    #[serde(rename = "class")]
+    Class,
+    #[serde(rename = "function")]
+    Function,
+    #[serde(rename = "method")]
+    Method,
+    #[serde(rename = "type")]
+    Type,
+    #[serde(rename = "constant")]
+    Constant,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -56,12 +76,180 @@ pub struct ProgressParams {
     pub message: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MapChangedParams {
+    pub epoch: u64,
+    pub layout: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MapInfo {
+    pub epoch: u64,
+    pub files: u64,
+    pub phase: IndexPhase,
+    pub world_w: f64,
+    pub world_h: f64,
+    pub tile_px: f64,
+    pub min_px: f64,
+    pub max_zoom: u32,
+    pub root_name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TileKey {
+    pub z: u32,
+    pub x: u32,
+    pub y: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TilesParams {
+    pub tiles: Vec<TileKey>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tile {
+    pub z: u32,
+    pub x: u32,
+    pub y: u32,
+    pub data: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TilesResult {
+    pub epoch: u64,
+    pub tiles: Vec<Tile>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlotParams {
+    pub slot: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeInfo {
+    pub slot: u32,
+    pub id: String,
+    pub kind: NodeKind,
+    pub name: String,
+    pub qualified: String,
+    pub path: String,
+    pub lang: String,
+    pub loc: u32,
+    pub start_line: u32,
+    pub end_line: u32,
+    pub files: u32,
+    pub generated: bool,
+    pub test: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rect: Option<Rect>,
+    pub ancestors: Vec<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocateParams {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocateResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<NodeInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchParams {
+    pub query: String,
+    pub limit: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub slot: u32,
+    pub kind: NodeKind,
+    pub name: String,
+    pub path: String,
+    pub line: u32,
+    pub score: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResult {
+    pub hits: Vec<SearchHit>,
+    pub elapsed_ms: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilesChangedParams {
+    pub paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilesChangedResult {
+    pub changed: bool,
+    pub elapsed_ms: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Timings {
+    pub warm_load_ms: f64,
+    pub first_map_ms: f64,
+    pub discover_ms: f64,
+    pub hash_ms: f64,
+    pub total_ms: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusResult {
+    pub phase: IndexPhase,
+    pub files: u64,
+    pub epoch: u64,
+    pub timings: Timings,
+    pub rss_mb: f64,
+}
+
 pub mod method {
     pub const INITIALIZE: &str = "initialize";
     pub const PING: &str = "ping";
     pub const SHUTDOWN: &str = "shutdown";
+    pub const MAP_INFO: &str = "map/info";
+    pub const MAP_TILES: &str = "map/tiles";
+    pub const NODE_INFO: &str = "node/info";
+    pub const NODE_LOCATE: &str = "node/locate";
+    pub const SEARCH: &str = "search";
+    pub const FILES_CHANGED: &str = "files/changed";
+    pub const INDEX_STATUS: &str = "index/status";
 }
 
 pub mod notification {
     pub const INDEX_PROGRESS: &str = "index/progress";
+    pub const MAP_CHANGED: &str = "map/changed";
 }

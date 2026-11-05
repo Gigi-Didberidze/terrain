@@ -1,8 +1,9 @@
 {
   "$comment": "Single source of truth for the indexer <-> extension protocol. Run `node protocol/gen.mjs` after editing. Field names are camelCase; Rust fields are generated in snake_case with serde renames. Types: string, bool, u32, u64, f64, bytes (base64 string), Name (struct or enum), T[] (array), and a trailing ? on a field name marks it optional.",
-  "version": 1,
+  "version": 2,
   "enums": {
-    "IndexPhase": ["discover", "hash", "parse", "resolve", "analyse", "persist", "history", "idle"]
+    "IndexPhase": ["discover", "hash", "parse", "resolve", "analyse", "persist", "history", "idle"],
+    "NodeKind": ["dir", "file", "module", "class", "function", "method", "type", "constant"]
   },
   "types": {
     "InitializeParams": {
@@ -22,14 +23,75 @@
       "done": "u64",
       "total": "u64",
       "message?": "string"
-    }
+    },
+    "MapChangedParams": {
+      "epoch": "u64",
+      "layout": "bool"
+    },
+    "Rect": { "x": "f64", "y": "f64", "w": "f64", "h": "f64" },
+    "MapInfo": {
+      "epoch": "u64",
+      "files": "u64",
+      "phase": "IndexPhase",
+      "worldW": "f64",
+      "worldH": "f64",
+      "tilePx": "f64",
+      "minPx": "f64",
+      "maxZoom": "u32",
+      "rootName": "string"
+    },
+    "TileKey": { "z": "u32", "x": "u32", "y": "u32" },
+    "TilesParams": { "tiles": "TileKey[]" },
+    "Tile": { "z": "u32", "x": "u32", "y": "u32", "data": "bytes" },
+    "TilesResult": { "epoch": "u64", "tiles": "Tile[]" },
+    "SlotParams": { "slot": "u32" },
+    "NodeInfo": {
+      "slot": "u32",
+      "id": "string",
+      "kind": "NodeKind",
+      "name": "string",
+      "qualified": "string",
+      "path": "string",
+      "lang": "string",
+      "loc": "u32",
+      "startLine": "u32",
+      "endLine": "u32",
+      "files": "u32",
+      "generated": "bool",
+      "test": "bool",
+      "rect?": "Rect",
+      "ancestors": "u32[]"
+    },
+    "LocateParams": { "path": "string", "line?": "u32" },
+    "LocateResult": { "node?": "NodeInfo" },
+    "SearchParams": { "query": "string", "limit": "u32" },
+    "SearchHit": { "slot": "u32", "kind": "NodeKind", "name": "string", "path": "string", "line": "u32", "score": "f64" },
+    "SearchResult": { "hits": "SearchHit[]", "elapsedMs": "f64" },
+    "FilesChangedParams": { "paths": "string[]" },
+    "FilesChangedResult": { "changed": "bool", "elapsedMs": "f64" },
+    "Timings": {
+      "warmLoadMs": "f64",
+      "firstMapMs": "f64",
+      "discoverMs": "f64",
+      "hashMs": "f64",
+      "totalMs": "f64"
+    },
+    "StatusResult": { "phase": "IndexPhase", "files": "u64", "epoch": "u64", "timings": "Timings", "rssMb": "f64" }
   },
   "requests": {
     "initialize": { "params": "InitializeParams", "result": "InitializeResult" },
     "ping": { "params": null, "result": "PingResult" },
-    "shutdown": { "params": null, "result": null }
+    "shutdown": { "params": null, "result": null },
+    "map/info": { "params": null, "result": "MapInfo" },
+    "map/tiles": { "params": "TilesParams", "result": "TilesResult" },
+    "node/info": { "params": "SlotParams", "result": "NodeInfo" },
+    "node/locate": { "params": "LocateParams", "result": "LocateResult" },
+    "search": { "params": "SearchParams", "result": "SearchResult" },
+    "files/changed": { "params": "FilesChangedParams", "result": "FilesChangedResult" },
+    "index/status": { "params": null, "result": "StatusResult" }
   },
   "notifications": {
-    "index/progress": "ProgressParams"
+    "index/progress": "ProgressParams",
+    "map/changed": "MapChangedParams"
   }
 }
