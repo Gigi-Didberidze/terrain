@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-05T17:55:11.184Z",
+  "commit": "6ff8353",
+  "machine": {
+    "platform": "win32",
+    "arch": "x64",
+    "cpus": 8,
+    "cpuModel": "11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+    "memGB": 8
+  },
+  "results": [
+    {
+      "repo": "fixtures",
+      "metric": "startup.spawnToInitializedMs",
+      "value": 20.255200000000002
+    }
+  ],
+  "misses": []
+}

@@ -1,0 +1,12 @@
+{
+  "$comment": "Benchmark corpus at pinned commits (dereferenced release tags). Cloned by bench/clone.mjs into bench/corpus/<name>.",
+  "repos": [
+    { "name": "linux", "url": "https://github.com/torvalds/linux.git", "tag": "v6.12", "commit": "adc218676eef25575469234709c2d87185ca223a", "size": "huge" },
+    { "name": "vscode", "url": "https://github.com/microsoft/vscode.git", "tag": "1.95.0", "commit": "912bb683695358a54ae0c670461738984cbb5b95", "size": "1M" },
+    { "name": "django", "url": "https://github.com/django/django.git", "tag": "5.1", "commit": "373cb3037fe4e67adbac9ac43340391e859aa957", "size": "1M" },
+    { "name": "rust", "url": "https://github.com/rust-lang/rust.git", "tag": "1.82.0", "commit": "f6e511eec7342f59a25f7c0534f1dbea00d01b14", "size": "large" },
+    { "name": "kubernetes", "url": "https://github.com/kubernetes/kubernetes.git", "tag": "v1.31.0", "commit": "9edcffcde5595e8a5b1a35f88c421764e575afce", "size": "large" },
+    { "name": "spring-boot", "url": "https://github.com/spring-projects/spring-boot.git", "tag": "v3.3.0", "commit": "a25e1ebe41bc02c5e7341ed1464d61c496cffe7c", "size": "1M" },
+    { "name": "rails", "url": "https://github.com/rails/rails.git", "tag": "v7.2.0", "commit": "fb6c4305939da06efdf2893d99130e7829c53e8b", "size": "1M" }
+  ]
+}

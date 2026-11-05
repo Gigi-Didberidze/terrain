@@ -1,0 +1,16 @@
+{
+  "$comment": "Performance budgets from the build plan. 'max' is the budget; 'unit' is what the scenario reports. Soft until M2 (reported, not failing); hard from M2 with --hard.",
+  "budgets": {
+    "startup.spawnToInitializedMs": { "max": 200, "unit": "ms", "repos": "any", "note": "proxy for activation: the indexer itself starts lazily" },
+    "warm.mapVisibleMs": { "max": 500, "unit": "ms", "repos": "all" },
+    "cold.indexMs.1M": { "max": 15000, "unit": "ms", "repos": ["django", "vscode"] },
+    "cold.indexMs.huge": { "max": 240000, "unit": "ms", "repos": ["linux"] },
+    "cold.firstMapMs.huge": { "max": 10000, "unit": "ms", "repos": ["linux"] },
+    "incremental.saveOneFileMs": { "max": 50, "unit": "ms", "repos": "all" },
+    "incremental.branchSwitch500Ms": { "max": 2000, "unit": "ms", "repos": ["vscode"] },
+    "neighbourhood.p99Ms": { "max": 100, "unit": "ms", "repos": "all" },
+    "search.p99Ms": { "max": 30, "unit": "ms", "repos": ["linux"] },
+    "memory.rssMB.1M": { "max": 300, "unit": "MB", "repos": ["django", "vscode"] },
+    "memory.rssMB.huge": { "max": 1024, "unit": "MB", "repos": ["linux"] }
+  }
+}
