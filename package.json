@@ -1,0 +1,12 @@
+{
+  "name": "compass-monorepo",
+  "private": true,
+  "workspaces": ["extension", "webview"],
+  "scripts": {
+    "gen": "node protocol/gen.mjs",
+    "gen:check": "node protocol/gen.mjs --check",
+    "build": "npm run build -w webview && npm run build -w extension",
+    "typecheck": "npm run typecheck -w webview && npm run typecheck -w extension",
+    "test": "npm test -w webview && npm test -w extension"
+  }
+}
