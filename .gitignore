@@ -1,0 +1,13 @@
+# Rust
+indexer/target/
+# Node
+node_modules/
+extension/dist/
+webview/dist/
+*.vsix
+# Benchmarks: cloned corpus is never committed, results history is
+bench/corpus/
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode-test/

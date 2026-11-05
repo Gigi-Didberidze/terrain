@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/parse", "crates/git", "crates/engine", "crates/rpc"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+debug = "line-tables-only"
+panic = "abort"
+
+[profile.bench]
+inherits = "release"
