@@ -1,11 +1,16 @@
-/* All colour comes from VS Code theme tokens so Compass looks native in every theme. */
+/* All colour comes from VS Code theme tokens so Compass looks native in every theme.
+   Sizes 11, 12 and 13px only. 1px strokes, 2px radius at most, no shadows or gradients. */
 :root {
   --c-bg: var(--vscode-editor-background);
   --c-fg: var(--vscode-editor-foreground);
   --c-muted: var(--vscode-descriptionForeground);
-  --c-line: var(--vscode-panel-border, var(--vscode-editorWidget-border));
+  --c-line: var(--vscode-editorWidget-border, var(--vscode-panel-border));
   --c-accent: var(--vscode-focusBorder);
   --c-error: var(--vscode-errorForeground);
+  --c-widget: var(--vscode-editorWidget-background);
+  --c-widget-fg: var(--vscode-editorWidget-foreground, var(--vscode-editor-foreground));
+  --c-select: var(--vscode-list-activeSelectionBackground);
+  --c-select-fg: var(--vscode-list-activeSelectionForeground);
   --f-ui: var(--vscode-font-family);
   --f-code: var(--vscode-editor-font-family);
 }
@@ -28,6 +33,23 @@ body {
   height: 100%;
 }
 
+canvas.map {
+  position: absolute;
+  inset: 0;
+  display: block;
+  outline: none;
+  cursor: default;
+}
+
+canvas.map:focus-visible {
+  outline: 1px solid var(--c-accent);
+  outline-offset: -1px;
+}
+
+.muted {
+  color: var(--c-muted);
+}
+
 .state {
   position: absolute;
   inset: 0;
@@ -38,10 +60,181 @@ body {
   font-size: 12px;
   color: var(--c-muted);
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.state[hidden] {
+  display: none;
 }
 
 .state[data-kind="error"] {
   color: var(--c-error);
   white-space: pre-wrap;
   padding: 0 24px;
+}
+
+.legend {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  height: 22px;
+  line-height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--c-bg);
+  border-top: 1px solid var(--c-line);
+  border-right: 1px solid var(--c-line);
+  font-variant-numeric: tabular-nums;
+}
+
+button.link {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--c-line);
+  text-underline-offset: 2px;
+}
+
+button.link:hover,
+button.link:focus-visible {
+  text-decoration-color: currentColor;
+  outline: none;
+}
+
+.hover {
+  position: fixed;
+  z-index: 10;
+  max-width: 420px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--c-widget-fg);
+  background: var(--c-widget);
+  border: 1px solid var(--c-line);
+  border-radius: 2px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.hover[hidden] {
+  display: none;
+}
+
+.hover > div {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hover-title {
+  font-family: var(--f-code);
+  font-size: 13px;
+}
+
+.search {
+  position: absolute;
+  z-index: 20;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 16px));
+  background: var(--c-widget);
+  border: 1px solid var(--c-line);
+  border-radius: 2px;
+}
+
+.search[hidden] {
+  display: none;
+}
+
+.search input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 8px;
+  font: 13px var(--f-ui);
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: none;
+  border-bottom: 1px solid var(--c-line);
+  outline: none;
+}
+
+.search input:focus {
+  outline: 1px solid var(--c-accent);
+  outline-offset: -1px;
+}
+
+.search-list {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.search-row {
+  display: flex;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+  font-family: var(--f-code);
+}
+
+.search-row[aria-selected="true"] {
+  background: var(--c-select);
+  color: var(--c-select-fg);
+}
+
+.search-row[aria-selected="true"] .muted {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.search-path {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.help {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--c-bg) 80%, transparent);
+}
+
+.help[hidden] {
+  display: none;
+}
+
+.help table {
+  border-collapse: collapse;
+  font-size: 12px;
+  background: var(--c-widget);
+  border: 1px solid var(--c-line);
+}
+
+.help td {
+  padding: 3px 12px;
+  border-bottom: 1px solid var(--c-line);
+}
+
+.help td.key {
+  font-family: var(--f-code);
+  color: var(--c-muted);
+  white-space: nowrap;
 }
