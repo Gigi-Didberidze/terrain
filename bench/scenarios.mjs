@@ -68,3 +68,118 @@ export const scenarios = [
     },
   },
 ];
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const pct = (xs, p) => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
+};
+
+/** Waits until the indexer reports the idle phase. */
+function untilIdle(rpc) {
+  return new Promise((resolve) => {
+    rpc.on("index/progress", (p) => {
+      if (p.phase === "idle") resolve();
+    });
+  });
+}
+
+function firstChange(rpc) {
+  return new Promise((resolve) => rpc.on("map/changed", () => resolve(performance.now())));
+}
+
+/** Tiles covering a 1280x800 viewport fitted to the whole map (zoom 2). */
+const FIRST_VIEW = [];
+for (let y = 0; y < 3; y++) for (let x = 0; x < 4; x++) FIRST_VIEW.push({ z: 2, x, y });
+
+scenarios.push({
+  name: "index",
+  async run({ binary, root, store }) {
+    const { execFileSync } = await import("node:child_process");
+    const { readdirSync, statSync, readFileSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    // Warm-up read so "cold" measures indexing, not the OS fetching files from disk for the
+    // first time (on Windows the first read after a clone is dominated by antivirus scanning).
+    execFileSync(binary, ["index", root], { stdio: "ignore" });
+    const metrics = {};
+    const db = join(store, "compass.db");
+
+    // Cold index.
+    {
+      const t0 = performance.now();
+      const rpc = new Rpc(binary);
+      const idle = untilIdle(rpc);
+      const first = firstChange(rpc);
+      await rpc.request("initialize", { workspaceRoot: root, storePath: db, clientVersion: "bench" });
+      metrics["cold.firstMapMs"] = (await first) - t0;
+      await idle;
+      metrics["cold.indexMs"] = performance.now() - t0;
+      const st = await rpc.request("index/status");
+      metrics["memory.rssMB"] = st.rssMb;
+      metrics["files"] = st.files;
+
+      // Incremental: append a line to a mid-sized source file, then restore it.
+      const files = [];
+      const walk = (d, depth) => {
+        if (files.length > 400 || depth > 6) return;
+        for (const e of readdirSync(d, { withFileTypes: true })) {
+          if (e.name.startsWith(".") || e.name === "node_modules") continue;
+          const p = join(d, e.name);
+          if (e.isDirectory()) walk(p, depth + 1);
+          else if (/\.(py|ts|c|go|rs|java|rb)$/.test(e.name)) files.push(p);
+        }
+      };
+      walk(root, 0);
+      const sizes = files.map((f) => [f, statSync(f).size]).sort((a, b) => a[1] - b[1]);
+      const [target] = sizes[Math.floor(sizes.length / 2)] ?? [];
+      if (target) {
+        const rel = target.slice(root.length + 1).split("\\").join("/");
+        const original = readFileSync(target);
+        const samples = [];
+        try {
+          for (let i = 0; i < 5; i++) {
+            writeFileSync(target, Buffer.concat([original, Buffer.from(`\n// compass bench ${i}\n`)]));
+            const t = performance.now();
+            const changed = firstChange(rpc);
+            const r = await rpc.request("files/changed", { paths: [rel] });
+            await Promise.race([changed, sleep(1000)]);
+            samples.push(Math.max(r.elapsedMs, performance.now() - t));
+          }
+        } finally {
+          writeFileSync(target, original);
+          await rpc.request("files/changed", { paths: [rel] });
+        }
+        metrics["incremental.saveOneFileMs"] = pct(samples, 50);
+      }
+
+      // Search: prefixes of real file names, one request per keystroke.
+      const names = files.map((f) => f.split(/[\/]/).pop().replace(/\.\w+$/, "")).filter((n) => n.length >= 4);
+      const lat = [];
+      for (let i = 0; i < Math.min(40, names.length); i++) {
+        const name = names[(i * 7919) % names.length];
+        for (let k = 1; k <= Math.min(6, name.length); k++) {
+          const t = performance.now();
+          await rpc.request("search", { query: name.slice(0, k), limit: 30 });
+          lat.push(performance.now() - t);
+        }
+      }
+      if (lat.length) metrics["search.p99Ms"] = pct(lat, 99);
+      await rpc.close();
+    }
+
+    // Warm start: map visible = initialize, first map/changed, first view's tiles drawn.
+    {
+      const t0 = performance.now();
+      const rpc = new Rpc(binary);
+      const idle = untilIdle(rpc);
+      const first = firstChange(rpc);
+      await rpc.request("initialize", { workspaceRoot: root, storePath: db, clientVersion: "bench" });
+      await first;
+      await rpc.request("map/tiles", { tiles: FIRST_VIEW });
+      metrics["warm.mapVisibleMs"] = performance.now() - t0;
+      await idle;
+      await rpc.close();
+    }
+    return metrics;
+  },
+});

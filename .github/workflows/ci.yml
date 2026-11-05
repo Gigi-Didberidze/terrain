@@ -34,91 +34,82 @@ jobs:
       - run: cargo clippy --manifest-path indexer/Cargo.toml --workspace --all-targets -- -D warnings
       - run: cargo test --manifest-path indexer/Cargo.toml --workspace
 
-  indexer:
-    name: indexer ${{ matrix.target }}
+  # One job per host OS: builds the native target (tested) and a cross target (built only).
+  # Six platforms on three runners; see DECISIONS.md D6.
+  build:
+    name: build ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { vsce: linux-x64, target: x86_64-unknown-linux-gnu, os: ubuntu-latest, native: true }
-          - { vsce: linux-arm64, target: aarch64-unknown-linux-gnu, os: ubuntu-latest, native: false }
-          - { vsce: win32-x64, target: x86_64-pc-windows-msvc, os: windows-latest, native: true }
-          - { vsce: win32-arm64, target: aarch64-pc-windows-msvc, os: windows-latest, native: false }
-          - { vsce: darwin-arm64, target: aarch64-apple-darwin, os: macos-latest, native: true }
-          - { vsce: darwin-x64, target: x86_64-apple-darwin, os: macos-latest, native: false }
+          - os: ubuntu-latest
+            native: { target: x86_64-unknown-linux-gnu, vsce: linux-x64 }
+            cross: { target: aarch64-unknown-linux-gnu, vsce: linux-arm64 }
+          - os: windows-latest
+            native: { target: x86_64-pc-windows-msvc, vsce: win32-x64 }
+            cross: { target: aarch64-pc-windows-msvc, vsce: win32-arm64 }
+          - os: macos-latest
+            native: { target: aarch64-apple-darwin, vsce: darwin-arm64 }
+            cross: { target: x86_64-apple-darwin, vsce: darwin-x64 }
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
-        with: { targets: "${{ matrix.target }}" }
+        with: { targets: "${{ matrix.native.target }},${{ matrix.cross.target }}" }
       - uses: Swatinem/rust-cache@v2
-        with: { workspaces: indexer, key: "${{ matrix.target }}" }
-      - name: Install aarch64 cross linker
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        with: { workspaces: indexer, key: "${{ matrix.os }}" }
+      - name: Install aarch64 cross toolchain
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q && sudo apt-get install -yq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
           echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
           echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
-      - name: Build
-        run: cargo build --release --manifest-path indexer/Cargo.toml --target ${{ matrix.target }} -p compass-indexer
-      - name: Test (native targets)
-        if: matrix.native
-        run: cargo test --release --manifest-path indexer/Cargo.toml --workspace --target ${{ matrix.target }}
-      - name: Stage binary
-        shell: bash
+      - name: Build indexer (native and cross)
         run: |
-          mkdir -p stage
-          ext=""; [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
-          cp "indexer/target/${{ matrix.target }}/release/compass-indexer$ext" "stage/compass-indexer$ext"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: indexer-${{ matrix.vsce }}
-          path: stage/
-          if-no-files-found: error
-
-  extension:
-    name: extension ${{ matrix.vsce }}
-    needs: indexer
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { vsce: linux-x64, os: ubuntu-latest, native: true }
-          - { vsce: linux-arm64, os: ubuntu-latest, native: false }
-          - { vsce: win32-x64, os: windows-latest, native: true }
-          - { vsce: win32-arm64, os: windows-latest, native: false }
-          - { vsce: darwin-arm64, os: macos-latest, native: true }
-          - { vsce: darwin-x64, os: macos-latest, native: false }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 24, cache: npm }
+          cargo build --release --manifest-path indexer/Cargo.toml -p compass-indexer --target ${{ matrix.native.target }}
+          cargo build --release --manifest-path indexer/Cargo.toml -p compass-indexer --target ${{ matrix.cross.target }}
+      - name: Test indexer (native)
+        run: cargo test --release --manifest-path indexer/Cargo.toml --workspace --target ${{ matrix.native.target }}
       - run: npm ci
       - run: npm run build
-      - uses: actions/download-artifact@v4
-        with: { name: "indexer-${{ matrix.vsce }}", path: extension/bin }
-      - name: Make binary executable
-        if: runner.os != 'Windows'
-        run: chmod +x extension/bin/compass-indexer
+      - name: Stage native binary
+        shell: bash
+        run: |
+          ext=""; [[ "${{ runner.os }}" == "Windows" ]] && ext=".exe"
+          mkdir -p extension/bin
+          cp "indexer/target/${{ matrix.native.target }}/release/compass-indexer$ext" extension/bin/
+          chmod +x extension/bin/compass-indexer* || true
       - name: Integration test (opens the map in a real VS Code)
-        if: matrix.native && runner.os == 'Linux'
-        run: xvfb-run -a npm run test:integration -w extension
-      - name: Integration test (opens the map in a real VS Code)
-        if: matrix.native && runner.os != 'Linux'
-        run: npm run test:integration -w extension
-      - name: Package VSIX
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then xvfb-run -a npm run test:integration -w extension; else npm run test:integration -w extension; fi
+      - name: Package VSIX (native and cross)
+        shell: bash
         working-directory: extension
-        run: npx vsce package --no-dependencies --target ${{ matrix.vsce }} -o compass-${{ matrix.vsce }}.vsix
+        run: |
+          ext=""; [[ "${{ runner.os }}" == "Windows" ]] && ext=".exe"
+          npx vsce package --no-dependencies --target ${{ matrix.native.vsce }} -o compass-${{ matrix.native.vsce }}.vsix
+          rm -f bin/compass-indexer*
+          cp "../indexer/target/${{ matrix.cross.target }}/release/compass-indexer$ext" bin/
+          npx vsce package --no-dependencies --target ${{ matrix.cross.vsce }} -o compass-${{ matrix.cross.vsce }}.vsix
       - uses: actions/upload-artifact@v4
         with:
-          name: vsix-${{ matrix.vsce }}
+          name: vsix-${{ matrix.os }}
           path: extension/*.vsix
+          if-no-files-found: error
+      - name: Upload native indexer for benchmarks
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: indexer-linux-x64
+          path: indexer/target/x86_64-unknown-linux-gnu/release/compass-indexer
 
   bench:
     name: benchmarks (soft until M2)
-    needs: indexer
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

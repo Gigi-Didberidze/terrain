@@ -29,3 +29,31 @@ Each entry: the decision, the alternatives, the reason.
 ## D7 — Bench startup scenario does one warm-up spawn
 - Alternatives: report the first spawn.
 - Reason: The first launch of a freshly built binary measured 1236 ms on Windows, dominated by the OS scanning a new executable; steady-state launches measured 18–20 ms. Users pay the scan once per install, not per activation.
+
+## D8 — Treemap layout computed in the indexer, not the webview
+- Alternatives: send the node list to the webview and lay it out there (the plan lists `webview/src/layout/` for the treemap).
+- Reason: The plan also says the webview gets only what is visible, streamed as tiles from the indexer. Tiles can only be cut where the geometry is known, so the squarified layout lives in `indexer/crates/core/src/layout.rs`. `webview/src/layout/` keeps the client-side layout work: hit-testing (quadtree), and later edge bundling and ELK.
+
+## D9 — Glyph atlas rasterised at the exact label size instead of an SDF atlas
+- Alternatives: signed distance field atlas, as the plan suggests.
+- Reason: Labels are drawn only at 11, 12 and 13 px and never scale with zoom, so SDF's benefit (one atlas for any size) doesn't apply. At these sizes SDF glyphs come out softer than glyphs rasterised at size × devicePixelRatio. Glyphs are added on demand, so any Unicode label renders.
+
+## D10 — Generated and vendored files stay on the map but are never parsed; node_modules and VCS dirs are excluded
+- Alternatives: drop generated files entirely.
+- Reason: Generated code is part of the repository and takes space people should see (kubernetes vendors a third of its files). Showing it, flagged and drawn in a quieter fill, is more honest than hiding it. Parsing it would waste indexing time, so it isn't parsed. `node_modules`, `.git`, `.hg` and `.svn` are never part of the project's own code.
+
+## D11 — Warm start skips re-hashing files whose size and mtime are unchanged
+- Alternatives: hash every file on every start (BLAKE3 is fast).
+- Reason: Reading 60k+ files costs seconds on a cold disk cache even when nothing changed. Size+mtime is the same shortcut git uses. The content hash stays the cache key, so branch switches reuse parse results whenever content matches.
+
+## D12 — Tile item coordinates are tile-relative f32; the GPU batch is rebased on every rebuild
+- Alternatives: absolute world f32 coordinates.
+- Reason: At the deepest zoom a symbol is about 1e-7 world units wide, below f32 resolution near 1.0. Tile-relative coordinates decode exactly into f64 world positions. The renderer uploads positions relative to an origin at the viewport corner, so f32 on the GPU stays precise at any zoom.
+
+## D13 — Lines of code = non-blank lines
+- Alternatives: physical lines; or code lines excluding comments.
+- Reason: Non-blank lines are cheap to count during hashing and language-independent. Excluding comments would need a parse per language and make area depend on tier.
+
+## D14 — A standalone webview harness for visual and performance tests
+- Alternatives: screenshot the webview inside VS Code via test-electron.
+- Reason: Playwright can't reach into a VS Code webview iframe reliably. `webview/harness/` serves the same bundle with a stand-in for `acquireVsCodeApi`, theme tokens copied from VS Code's built-in themes, and a real indexer behind it. The integration test still covers the real VS Code path.
