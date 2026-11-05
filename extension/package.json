@@ -38,6 +38,11 @@
         "command": "compass.reindex",
         "title": "Reindex Workspace",
         "category": "Compass"
+      },
+      {
+        "command": "compass.searchMap",
+        "title": "Search Map",
+        "category": "Compass"
       }
     ],
     "keybindings": [
