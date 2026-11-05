@@ -1,0 +1,13 @@
+(call_expression function: (identifier) @ref.call)
+(call_expression function: (member_expression property: (property_identifier) @ref.call))
+(new_expression constructor: (identifier) @ref.call)
+(new_expression constructor: (member_expression property: (property_identifier) @ref.call))
+(decorator (identifier) @ref.call)
+(decorator (call_expression function: (identifier) @ref.call))
+(type_identifier) @ref.type
+(class_heritage (extends_clause value: (identifier) @ref.inherits))
+(class_heritage (extends_clause value: (member_expression property: (property_identifier) @ref.inherits)))
+(class_heritage (implements_clause (type_identifier) @ref.implements))
+(class_heritage (implements_clause (generic_type name: (type_identifier) @ref.implements)))
+(extends_type_clause (type_identifier) @ref.inherits)
+(extends_type_clause (generic_type name: (type_identifier) @ref.inherits))

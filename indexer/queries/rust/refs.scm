@@ -1,0 +1,13 @@
+(call_expression function: (identifier) @ref.call)
+(call_expression function: (field_expression field: (field_identifier) @ref.call))
+(call_expression function: (scoped_identifier name: (identifier) @ref.call))
+(call_expression function: (generic_function function: (identifier) @ref.call))
+(call_expression function: (generic_function function: (field_expression field: (field_identifier) @ref.call)))
+(call_expression function: (generic_function function: (scoped_identifier name: (identifier) @ref.call)))
+(macro_invocation macro: (identifier) @ref.call)
+(struct_expression name: (type_identifier) @ref.call)
+(type_identifier) @ref.type
+(impl_item trait: (type_identifier) @ref.implements)
+(impl_item trait: (generic_type type: (type_identifier) @ref.implements))
+(impl_item trait: (scoped_type_identifier name: (type_identifier) @ref.implements))
+(trait_bounds (type_identifier) @ref.inherits)

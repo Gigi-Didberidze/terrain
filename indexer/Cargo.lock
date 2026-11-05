@@ -141,6 +141,10 @@ dependencies = [
 name = "compass-parse"
 version = "0.1.0"
 dependencies = [
+ "compass-core",
+ "postcard",
+ "regex",
+ "serde",
  "streaming-iterator",
  "tree-sitter",
  "tree-sitter-c",

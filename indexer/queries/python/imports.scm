@@ -1,0 +1,8 @@
+(import_statement name: (dotted_name) @import)
+(import_statement name: (aliased_import name: (dotted_name) @import))
+(import_from_statement module_name: (dotted_name) @import name: (dotted_name) @import.name)
+(import_from_statement module_name: (relative_import) @import name: (dotted_name) @import.name)
+(import_from_statement module_name: (dotted_name) @import name: (aliased_import name: (dotted_name) @import.name))
+(import_from_statement module_name: (relative_import) @import name: (aliased_import name: (dotted_name) @import.name))
+(import_from_statement module_name: (dotted_name) @import (wildcard_import))
+(import_from_statement module_name: (relative_import) @import (wildcard_import))
