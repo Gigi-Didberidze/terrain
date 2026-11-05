@@ -2,18 +2,21 @@
 import type { Camera } from "./camera.ts";
 import type { Label, Line, RectBatch } from "./render/types.ts";
 import type { RGBA, Theme } from "./render/theme.ts";
-import { FLAG_GENERATED, KIND_DIR, KIND_FILE, type Item } from "./tiles.ts";
+import { FLAG_GENERATED, KIND_DIR, KIND_FILE, type DecodedTile, type Item } from "./tiles.ts";
 
-export interface Style {
+/** What decides fills: the theme and the active lens. Selection is drawn as an overlay. */
+export interface BaseStyle {
   theme: Theme;
-  selected: number | null;
-  here: number | null;
-  hover: number | null;
-  pinned: ReadonlySet<number>;
   /** Fill override per item (the active lens), or null for the neutral fill. */
   lensColor: (it: Item) => RGBA | null;
   /** Items to mute (e.g. the Coupling lens mutes everything but partners). */
   muted?: (it: Item) => boolean;
+}
+
+export interface Outline {
+  it: Item;
+  color: RGBA;
+  width: number;
 }
 
 /** Must match HEADER in indexer/crates/core/src/layout.rs. */
@@ -28,6 +31,60 @@ interface Box {
   h: number;
 }
 
+/** Uniform grid of placed label boxes: collision checks touch only nearby cells. */
+export class BoxGrid {
+  private readonly cells = new Map<number, Box[]>();
+  private readonly size: number;
+  constructor(size: number) {
+    this.size = size;
+  }
+  private keys(b: Box): number[] {
+    const out: number[] = [];
+    const x0 = Math.floor(b.x / this.size);
+    const x1 = Math.floor((b.x + b.w) / this.size);
+    const y0 = Math.floor(b.y / this.size);
+    const y1 = Math.floor((b.y + b.h) / this.size);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) out.push((y + 4096) * 8192 + x + 4096);
+    return out;
+  }
+  free(b: Box): boolean {
+    for (const k of this.keys(b)) {
+      for (const p of this.cells.get(k) ?? []) {
+        if (b.x < p.x + p.w && p.x < b.x + b.w && b.y < p.y + p.h && p.y < b.y + b.h) return false;
+      }
+    }
+    return true;
+  }
+  add(b: Box): void {
+    for (const k of this.keys(b)) {
+      let c = this.cells.get(k);
+      if (!c) this.cells.set(k, (c = []));
+      c.push(b);
+    }
+  }
+}
+
+/** Memoises text widths; labels repeat from frame to frame. Clear when the font changes. */
+export class WidthCache {
+  private readonly map = new Map<string, number>();
+  private readonly measure: (t: string) => number;
+  constructor(measure: (t: string) => number) {
+    this.measure = measure;
+  }
+  width(t: string): number {
+    let w = this.map.get(t);
+    if (w === undefined) {
+      if (this.map.size > 50_000) this.map.clear();
+      w = this.measure(t);
+      this.map.set(t, w);
+    }
+    return w;
+  }
+  clear(): void {
+    this.map.clear();
+  }
+}
+
 const kindOrder = (k: number): number => (k === KIND_DIR ? 0 : k === KIND_FILE ? 1 : 2);
 
 /** Painter's order: containers before contents. */
@@ -35,38 +92,53 @@ export function sortForPaint(items: Item[]): Item[] {
   return items.sort((a, b) => kindOrder(a.kind) - kindOrder(b.kind) || a.depth - b.depth || a.slot - b.slot);
 }
 
-export function buildBatch(items: Item[], style: Style, originX: number, originY: number, unit: number, prev?: RectBatch): RectBatch {
-  const n = items.length;
-  const geom = prev && prev.geom.length >= n * 4 ? prev.geom : new Float32Array(Math.max(16, n * 4 * 1.5) | 0);
-  const colors = prev && prev.colors.length >= n * 8 ? prev.colors : new Uint8Array(Math.max(32, n * 8 * 1.5) | 0);
-  const stroke = prev && prev.stroke.length >= n ? prev.stroke : new Float32Array(Math.max(4, n * 1.5) | 0);
+export function fillFor(it: Item, style: BaseStyle): RGBA {
   const t = style.theme;
+  if (it.kind === KIND_DIR) return t.dirFill;
+  if (style.muted?.(it)) return t.dirFill;
+  if (it.kind === KIND_FILE) return style.lensColor(it) ?? (it.flags & FLAG_GENERATED ? t.generatedFill : t.fileFill);
+  return style.lensColor(it) ?? t.symbolFill;
+}
+
+/**
+ * One tile's batch, in tile-relative units (origin = tile corner, unit = tile size), which is
+ * exactly how tiles arrive, so f32 stays precise at any zoom. Items must be in paint order.
+ */
+export function buildTileBatch(tile: DecodedTile, style: BaseStyle): RectBatch {
+  const n = tile.items.length;
+  const unit = 1 / 2 ** tile.z;
+  const originX = tile.x * unit;
+  const originY = tile.y * unit;
+  const geom = new Float32Array(n * 4);
+  const colors = new Uint8Array(n * 8);
+  const stroke = new Float32Array(n);
   const inv = 1 / unit;
+  const line = style.theme.line;
   for (let i = 0; i < n; i++) {
-    const it = items[i]!;
+    const it = tile.items[i]!;
     geom[4 * i] = (it.x - originX) * inv;
     geom[4 * i + 1] = (it.y - originY) * inv;
     geom[4 * i + 2] = it.w * inv;
     geom[4 * i + 3] = it.h * inv;
-    let fill: RGBA;
-    if (it.kind === KIND_DIR) fill = t.dirFill;
-    else if (it.kind === KIND_FILE) fill = style.lensColor(it) ?? (it.flags & FLAG_GENERATED ? t.generatedFill : t.fileFill);
-    else fill = style.lensColor(it) ?? t.symbolFill;
-    if (style.muted?.(it) && it.kind !== KIND_DIR) fill = t.dirFill;
-    let line: RGBA = t.line;
-    let sw = 1;
-    if (it.slot === style.hover) line = t.muted;
-    if (style.pinned.has(it.slot)) {
-      line = t.foreground;
-    }
-    if (it.slot === style.selected || it.slot === style.here) {
-      line = t.accent;
-      sw = 2;
-    }
-    colors.set(fill, 8 * i);
+    colors.set(fillFor(it, style), 8 * i);
     colors.set(line, 8 * i + 4);
-    stroke[i] = sw;
+    stroke[i] = 1;
   }
+  return { originX, originY, unit, count: n, geom, colors, stroke };
+}
+
+/** Outlines drawn above all tiles (selection, "you are here", hover, pins); fills are transparent. */
+export function buildOverlay(outlines: Outline[], originX: number, originY: number, unit: number): RectBatch {
+  const n = outlines.length;
+  const geom = new Float32Array(n * 4);
+  const colors = new Uint8Array(n * 8);
+  const stroke = new Float32Array(n);
+  const inv = 1 / unit;
+  outlines.forEach((o, i) => {
+    geom.set([(o.it.x - originX) * inv, (o.it.y - originY) * inv, o.it.w * inv, o.it.h * inv], 4 * i);
+    colors.set(o.color, 8 * i + 4);
+    stroke[i] = o.width;
+  });
   return { originX, originY, unit, count: n, geom, colors, stroke };
 }
 
@@ -103,8 +175,13 @@ export function buildLabels(items: Item[], ctx: LabelContext): Label[] {
   const measure = (s: string) => ctx.measure(s, 11);
   // Largest first, so when we hit the cap the important labels are kept.
   const cands: { it: Item; sx: number; sy: number; sw: number; sh: number }[] = [];
+  const v = camera.view;
+  const hw = W / 2;
+  const hh = H / 2;
   for (const it of items) {
-    const [sx, sy] = camera.toScreen(it.x, it.y);
+    // Inline world-to-screen: this loop runs per frame over thousands of items.
+    const sx = (it.x - v.cx) * v.scale + hw;
+    const sy = (it.y - v.cy) * v.scale + hh;
     const sw = it.w * camera.view.scale;
     const sh = it.h * camera.view.scale;
     if (sw < 28 || sh < 14) continue;
@@ -112,8 +189,8 @@ export function buildLabels(items: Item[], ctx: LabelContext): Label[] {
     cands.push({ it, sx, sy, sw, sh });
   }
   cands.sort((a, b) => b.sw * b.sh - a.sw * a.sh);
-  const placed: Box[] = [];
-  const free = (b: Box) => !placed.some((p) => b.x < p.x + p.w && p.x < b.x + b.w && b.y < p.y + p.h && p.y < b.y + b.h);
+  const placed = new BoxGrid(64);
+  const free = (b: Box) => placed.free(b);
   for (const c of cands) {
     if (out.length >= ctx.max) break;
     const { it, sx, sy, sw, sh } = c;
@@ -128,7 +205,7 @@ export function buildLabels(items: Item[], ctx: LabelContext): Label[] {
     if (!text) continue;
     const box = { x, y, w: measure(text), h: 13 };
     if (!free(box)) continue;
-    placed.push(box);
+    placed.add(box);
     const color = isDir ? theme.muted : theme.foreground;
     out.push({ text, x, y, color, size: 11 });
     if (isDir && it.hidden >= MIN_AGGREGATE && sh > 60) {
@@ -137,7 +214,7 @@ export function buildLabels(items: Item[], ctx: LabelContext): Label[] {
       if (extra) {
         const eb = { x, y: ey, w: measure(extra), h: 13 };
         if (free(eb)) {
-          placed.push(eb);
+          placed.add(eb);
           out.push({ text: extra, x, y: ey, color: theme.muted, size: 11 });
         }
       }

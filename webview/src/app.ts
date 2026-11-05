@@ -4,20 +4,23 @@ import type { MapInfo, NodeInfo } from "../../protocol/generated/protocol.ts";
 import type { HostToView, ViewTile } from "../../protocol/webview.ts";
 import { Camera } from "./camera.ts";
 import { Host } from "./host.ts";
-import { Quadtree } from "./layout/quadtree.ts";
 import { Canvas2DRenderer } from "./render/canvas2d.ts";
 import { GLRenderer } from "./render/gl.ts";
 import { readTheme, type Theme } from "./render/theme.ts";
-import { emptyBatch, type RectBatch, type Renderer } from "./render/types.ts";
-import { buildBatch, buildLabels, hereMarker, sortForPaint, type Style } from "./scene.ts";
-import { decodeTile, KIND_DIR, KIND_FILE, TileCache, tileKey, type Item } from "./tiles.ts";
+import type { Renderer, TileDraw } from "./render/types.ts";
+import { buildLabels, buildOverlay, buildTileBatch, hereMarker, sortForPaint, WidthCache, type BaseStyle, type Outline } from "./scene.ts";
+import { decodeTile, KIND_DIR, KIND_FILE, TileCache, tileKey, type DecodedTile, type Item } from "./tiles.ts";
 import { Help } from "./ui/help.ts";
 import { HoverCard } from "./ui/hover.ts";
 import { Legend } from "./ui/legend.ts";
 import { SearchBox } from "./ui/search.ts";
 
-const MAX_ITEMS = 50_000;
-const MAX_TILE_REQUEST = 64;
+/** Tiles per request: small groups arrive (and get drawn) progressively. */
+const MAX_TILE_REQUEST = 6;
+/** Main-thread time per frame spent decoding arrived tiles. */
+const DECODE_BUDGET_MS = 3;
+/** Frame time after which no new tile batches are built (the rest wait for the next frame). */
+const BUILD_BUDGET_MS = 7;
 
 export class App {
   private readonly host = new Host();
@@ -29,14 +32,14 @@ export class App {
   private info: MapInfo | undefined;
   private cache = new TileCache();
   private stale = new TileCache();
-  private items: Item[] = [];
-  private byslot = new Map<number, Item>();
-  private quad = new Quadtree<Item>();
-  private batch: RectBatch = emptyBatch();
-  private sceneKey = "";
-  private styleDirty = true;
+  /** Tiles drawn in the last frame, each with the clip rect of the key it stands in for. */
+  private drawn: { tile: DecodedTile; clip: { x: number; y: number; w: number; h: number } }[] = [];
+  /** Bumped when fills change (theme, lens); tile batches rebuild lazily. */
+  private styleVersion = 0;
   private frame = 0;
-  private origin = { x: 0, y: 0, unit: 1 };
+  private widths!: WidthCache;
+  /** Tiles that arrived but are not decoded yet (decoded a few per frame). */
+  private readonly inbox: { cache: TileCache; tile: ViewTile }[] = [];
 
   private selected: number | null = null;
   private here: number | null = null;
@@ -95,12 +98,14 @@ export class App {
       this.renderer = new Canvas2DRenderer(this.canvas);
     }
     this.renderer.setFont(this.theme.editorFont);
+    this.widths = new WidthCache((t) => this.renderer.measure(t, 11));
   }
 
   private onThemeChange(): void {
     this.theme = readTheme();
     this.renderer.setFont(this.theme.editorFont);
-    this.styleDirty = true;
+    this.widths.clear();
+    this.styleVersion++;
     this.invalidate();
   }
 
@@ -235,14 +240,7 @@ export class App {
       this.host
         .request("map/tiles", { tiles: chunk })
         .then((r) => {
-          for (const t of r.tiles as unknown as ViewTile[]) {
-            try {
-              cache.put(decodeTile(t.data));
-            } catch (e) {
-              cache.failed(tileKey(t.z, t.x, t.y));
-              this.host.post({ type: "log", level: "error", text: `tile ${t.z}/${t.x}/${t.y}: ${e}` });
-            }
-          }
+          for (const t of r.tiles as unknown as ViewTile[]) this.inbox.push({ cache, tile: t });
           this.invalidate();
         })
         .catch(() => {
@@ -251,61 +249,135 @@ export class App {
     }
   }
 
-  /** Picks the best available tile for each needed key: exact, stale exact, or a cached ancestor. */
-  private assemble(): void {
-    if (!this.info) return;
-    const { keys } = this.neededTiles();
-
-    this.requestTiles(keys);
-    const used: string[] = [];
-    const tiles = [];
-    const seen = new Set<string>();
-    for (const k of keys) {
-      let t = this.cache.get(tileKey(k.z, k.x, k.y)) ?? this.stale.get(tileKey(k.z, k.x, k.y));
-      for (let d = 1; !t && d <= Math.min(k.z, 4); d++) {
-        const pk = tileKey(k.z - d, k.x >> d, k.y >> d);
-        t = this.cache.get(pk) ?? this.stale.get(pk);
+  /** Decodes queued tiles within the frame budget; returns true if work is left. */
+  private drainInbox(t0: number): boolean {
+    while (this.inbox.length) {
+      const { cache, tile: t } = this.inbox.shift()!;
+      try {
+        cache.put(prepareTile(decodeTile(t.data)));
+      } catch (e) {
+        cache.failed(tileKey(t.z, t.x, t.y));
+        this.host.post({ type: "log", level: "error", text: `tile ${t.z}/${t.x}/${t.y}: ${e}` });
       }
-      if (!t) continue;
-      const key = tileKey(t.z, t.x, t.y);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      used.push(key);
-      tiles.push(t);
+      if (performance.now() - t0 > DECODE_BUDGET_MS) break;
     }
-    const sceneKey = used.sort().join("|");
-    // Rebase when zoom moved far from the batch origin (keeps f32 precise at deep zoom).
-    const unitOk = this.origin.unit * this.camera.view.scale > 64 && this.origin.unit * this.camera.view.scale < 1 << 16;
-    if (sceneKey === this.sceneKey && !this.styleDirty && unitOk) return;
-    if (sceneKey !== this.sceneKey) {
-      const map = new Map<number, Item>();
-      for (const t of tiles) for (const it of t.items) if (!map.has(it.slot)) map.set(it.slot, it);
-      let items = [...map.values()];
-      if (items.length > MAX_ITEMS) items = items.sort((a, b) => b.w * b.h - a.w * a.h).slice(0, MAX_ITEMS);
-      this.items = sortForPaint(items);
-      this.byslot = map;
-      const q = new Quadtree<Item>({ x: 0, y: 0, w: 1, h: 1 });
-      for (const it of this.items) q.insert(it);
-      this.quad = q;
-      this.sceneKey = sceneKey;
-    }
-    // Rebase on every rebuild: origin at the viewport corner, 256 px per local unit.
-    const b = this.camera.bounds();
-    this.origin = { x: b.x, y: b.y, unit: 256 / this.camera.view.scale };
-    this.batch = buildBatch(this.items, this.style(), this.origin.x, this.origin.y, this.origin.unit, this.batch);
-    this.renderer.setRects(this.batch);
-    this.styleDirty = false;
+    return this.inbox.length > 0;
   }
 
-  private style(): Style {
-    return {
-      theme: this.theme,
-      selected: this.selected,
-      here: this.here,
-      hover: this.hover,
-      pinned: this.pinned,
-      lensColor: () => null,
+  private cached(key: string): DecodedTile | undefined {
+    return this.cache.get(key) ?? this.stale.get(key);
+  }
+
+  /** Picks the best available tile for each needed key: exact, stale exact, or a cached ancestor. */
+  private assemble(t0: number): TileDraw[] {
+    this.drawn = [];
+    if (!this.info) return [];
+    const { keys } = this.neededTiles();
+    this.requestTiles(keys);
+    const style = this.baseStyle();
+    const out: TileDraw[] = [];
+    let deferred = false;
+    /** A tile is usable if its batch is current, or can still be built within this frame's budget. */
+    const ready = (t: DecodedTile | undefined): t is DecodedTile => {
+      if (!t) return false;
+      if (t.batch && t.batchVersion === this.styleVersion) return true;
+      if (performance.now() - t0 > BUILD_BUDGET_MS) {
+        deferred = true;
+        return false;
+      }
+      t.batch = buildTileBatch(t, style);
+      t.batchVersion = this.styleVersion;
+      return true;
     };
+    const use = (t: DecodedTile, z: number, x: number, y: number) => {
+      const size = 1 / 2 ** z;
+      const clip = { x: x * size, y: y * size, w: size, h: size };
+      this.drawn.push({ tile: t, clip });
+      out.push({ batch: t.batch!, clip });
+    };
+    for (const k of keys) {
+      // Exact tile, else a coarser ancestor (zooming in), else finer children (zooming out).
+      let t = this.cached(tileKey(k.z, k.x, k.y));
+      if (!ready(t)) t = undefined;
+      for (let d = 1; !t && d <= Math.min(k.z, 4); d++) {
+        const a = this.cached(tileKey(k.z - d, k.x >> d, k.y >> d));
+        if (ready(a)) t = a;
+      }
+      if (t) {
+        use(t, k.z, k.x, k.y);
+        continue;
+      }
+      for (let d = 1; d <= 2; d++) {
+        const n = 1 << d;
+        const kids: [DecodedTile, number, number][] = [];
+        for (let dy = 0; dy < n; dy++)
+          for (let dx = 0; dx < n; dx++) {
+            const c = this.cached(tileKey(k.z + d, k.x * n + dx, k.y * n + dy));
+            if (ready(c)) kids.push([c, k.x * n + dx, k.y * n + dy]);
+          }
+        if (kids.length) {
+          for (const [c, x, y] of kids) use(c, k.z + d, x, y);
+          break;
+        }
+      }
+    }
+    if (deferred) this.invalidate();
+    return out;
+  }
+
+  private baseStyle(): BaseStyle {
+    return { theme: this.theme, lensColor: () => null };
+  }
+
+  /** Finds a visible item by slot (finest tile first). */
+  private findItem(slot: number | null): Item | undefined {
+    if (slot === null) return undefined;
+    let best: Item | undefined;
+    let bestZ = -1;
+    for (const d of this.drawn) {
+      const it = d.tile.bySlot?.get(slot);
+      if (it && d.tile.z > bestZ) {
+        best = it;
+        bestZ = d.tile.z;
+      }
+    }
+    return best;
+  }
+
+  /** Distinct visible items (for keyboard navigation). */
+  private visibleItems(): Item[] {
+    const seen = new Set<number>();
+    const out: Item[] = [];
+    for (const d of this.drawn) for (const it of d.tile.items) if (!seen.has(it.slot)) (seen.add(it.slot), out.push(it));
+    return out;
+  }
+
+  /** Label candidates: per tile, largest first, stopping at items too small to label. */
+  private labelCandidates(): Item[] {
+    const seen = new Set<number>();
+    const out: Item[] = [];
+    const s2 = this.camera.view.scale ** 2;
+    for (const d of this.drawn) {
+      for (const it of d.tile.bySize ?? []) {
+        if (it.w * it.h * s2 < 28 * 14) break;
+        if (!seen.has(it.slot)) (seen.add(it.slot), out.push(it));
+      }
+    }
+    return out;
+  }
+
+  private overlay(): Outline[] {
+    const t = this.theme;
+    const out: Outline[] = [];
+    const add = (slot: number | null, color: Outline["color"], width: number) => {
+      const it = this.findItem(slot);
+      if (it) out.push({ it, color, width });
+    };
+    add(this.hover, t.muted, 1);
+    for (const p of this.pinned) add(p, t.foreground, 1);
+    add(this.here, t.accent, 2);
+    add(this.selected, t.accent, 2);
+    return out;
   }
 
   invalidate(): void {
@@ -315,20 +387,31 @@ export class App {
 
   /** Frame log for performance tests: [rAF timestamp, CPU ms spent in draw]. */
   readonly frames: [number, number][] = [];
+  /** Per-frame breakdown for profiling: [assemble, labels, render] in ms. */
+  readonly breakdown: [number, number, number][] = [];
 
   private draw(now: number): void {
     const t0 = performance.now();
     this.frame = 0;
     const animating = this.camera.step(now);
-    if (this.info) this.assemble();
+    const moreToDecode = this.drainInbox(t0);
+    const tiles = this.assemble(t0);
+    const t1 = performance.now();
     const labels = this.info
-      ? buildLabels(this.items, { camera: this.camera, theme: this.theme, measure: (t, s) => this.renderer.measure(t, s), max: 800 })
+      ? buildLabels(this.labelCandidates(), { camera: this.camera, theme: this.theme, measure: (t) => this.widths.width(t), max: 400 })
       : [];
-    const lines = hereMarker(this.here !== null ? this.byslot.get(this.here) : undefined, this.camera, this.theme);
-    this.renderer.draw(this.camera.view, this.theme.background, labels, lines);
-    this.frames.push([now, performance.now() - t0]);
+    const t2 = performance.now();
+    const lines = hereMarker(this.findItem(this.here), this.camera, this.theme);
+    const b = this.camera.bounds();
+    const outlines = this.overlay();
+    const overlay = outlines.length ? buildOverlay(outlines, b.x, b.y, 256 / this.camera.view.scale) : null;
+    this.renderer.draw({ view: this.camera.view, background: this.theme.background, tiles, overlay, labels, lines });
+    const t3 = performance.now();
+    this.frames.push([now, t3 - t0]);
+    this.breakdown.push([t1 - t0, t2 - t1, t3 - t2]);
+    if (this.breakdown.length > 2000) this.breakdown.splice(0, 1000);
     if (this.frames.length > 2000) this.frames.splice(0, 1000);
-    if (animating) this.invalidate();
+    if (animating || moreToDecode) this.invalidate();
     this.saveViewSoon();
   }
 
@@ -355,7 +438,6 @@ export class App {
       if (this.history.length > 200) this.history.shift();
     }
     this.selected = slot;
-    this.styleDirty = true;
     this.host.post({ type: "select", slot });
     this.invalidate();
   }
@@ -392,7 +474,7 @@ export class App {
 
   /** Test hook: number of drawable items currently in the scene. */
   get itemCount(): number {
-    return this.items.length;
+    return this.drawn.reduce((n, d) => n + d.tile.items.length, 0);
   }
 
   /** Selects a node and brings it into view (search results, sidebar, commands). */
@@ -429,7 +511,6 @@ export class App {
     }
     this.pendingFollow = null;
     this.here = node?.slot ?? null;
-    this.styleDirty = true;
     if (this.follow && node?.rect) this.showRect(node.rect, false);
     this.invalidate();
   }
@@ -443,17 +524,23 @@ export class App {
 
   private hit(sx: number, sy: number): Item | undefined {
     const [wx, wy] = this.camera.toWorld(sx, sy);
-    const hits = this.quad.at(wx, wy);
     let best: Item | undefined;
-    for (const h of hits) if (!best || h.w * h.h < best.w * best.h) best = h;
+    for (const d of this.drawn) {
+      const c = d.clip;
+      if (wx < c.x || wy < c.y || wx >= c.x + c.w || wy >= c.y + c.h) continue;
+      for (const h of d.tile.items) {
+        if (wx >= h.x && wx < h.x + h.w && wy >= h.y && wy < h.y + h.h && (!best || h.w * h.h < best.w * best.h)) best = h;
+      }
+    }
     return best;
   }
 
   /** Arrow-key navigation: nearest visible item of the same kind and depth in that direction. */
   private moveSelection(dx: number, dy: number): void {
-    const cur = this.selected !== null ? this.byslot.get(this.selected) : undefined;
+    const items = this.visibleItems();
+    const cur = this.findItem(this.selected);
     if (!cur) {
-      const first = this.items.find((i) => i.kind === KIND_FILE) ?? this.items[0];
+      const first = items.find((i) => i.kind === KIND_FILE) ?? items[0];
       if (first) this.select(first.slot);
       return;
     }
@@ -461,7 +548,7 @@ export class App {
     const cy = cur.y + cur.h / 2;
     let best: Item | undefined;
     let bestScore = Infinity;
-    for (const it of this.items) {
+    for (const it of items) {
       if (it.slot === cur.slot || it.kind !== cur.kind || it.depth !== cur.depth) continue;
       const vx = it.x + it.w / 2 - cx;
       const vy = it.y + it.h / 2 - cy;
@@ -544,7 +631,6 @@ export class App {
   private setHover(slot: number | null): void {
     if (slot === this.hover) return;
     this.hover = slot;
-    this.styleDirty = true;
     this.invalidate();
   }
 
@@ -606,7 +692,7 @@ export class App {
         const prev = this.history.pop();
         if (prev !== undefined) {
           this.select(prev, false);
-          const it = this.byslot.get(prev);
+          const it = this.findItem(prev);
           if (it) this.showRect(it, false);
           else void this.reveal(prev, false);
         }
@@ -616,8 +702,7 @@ export class App {
         if (this.selected !== null) {
           if (this.pinned.has(this.selected)) this.pinned.delete(this.selected);
           else this.pinned.add(this.selected);
-          this.styleDirty = true;
-        }
+              }
         break;
       case "ArrowLeft":
         this.moveSelection(-1, 0);
@@ -652,4 +737,12 @@ export function hoverLines(n: NodeInfo): { title: string; lines: string[] } {
   if (n.kind === "dir") lines[0] = `directory · ${n.files.toLocaleString("en-US")} files · ${loc}`;
   lines.push(n.kind === "file" || n.kind === "dir" ? n.path || "/" : `${n.path}:${n.startLine}`);
   return { title: n.kind === "file" || n.kind === "dir" ? n.name : n.qualified, lines };
+}
+
+/** Indexes a decoded tile once: paint order, size order and slot lookup. */
+export function prepareTile(t: DecodedTile): DecodedTile {
+  sortForPaint(t.items);
+  t.bySize = [...t.items].sort((a, b) => b.w * b.h - a.w * a.h);
+  t.bySlot = new Map(t.items.map((i) => [i.slot, i]));
+  return t;
 }

@@ -31,7 +31,14 @@ export interface DecodedTile {
   z: number;
   x: number;
   y: number;
+  /** In paint order (containers before contents). */
   items: Item[];
+  /** Largest first, for label placement. */
+  bySize?: Item[];
+  bySlot?: Map<number, Item>;
+  /** GPU batch and the style version it was built for. */
+  batch?: import("./render/types.ts").RectBatch;
+  batchVersion?: number;
 }
 
 const decoder = new TextDecoder();

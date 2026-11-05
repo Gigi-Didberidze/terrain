@@ -10,7 +10,17 @@
     const r = await fetch("/rpc", { method: "POST", body: JSON.stringify({ method, params }) });
     return r.json();
   };
-  const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  // Native base64 decoding where available; VS Code itself passes raw bytes, so this keeps the
+  // harness from adding main-thread work the real webview never does.
+  const b64 =
+    typeof Uint8Array.fromBase64 === "function"
+      ? (s) => Uint8Array.fromBase64(s)
+      : (s) => {
+          const bin = atob(s);
+          const out = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+          return out;
+        };
   window.__compass = { rpc };
   window.acquireVsCodeApi = () => ({
     async postMessage(m) {

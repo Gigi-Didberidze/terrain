@@ -36,10 +36,13 @@ export class GlyphAtlas {
   }
 
   configure(family: string, dpr: number): void {
-    if (family === this.family && dpr === this.dpr) return;
+    if (family === this.family && dpr === this.dpr && this.glyphs.size) return;
     this.family = family;
     this.dpr = dpr;
     this.reset();
+    // Rasterise printable ASCII up front: the atlas is then uploaded once instead of every time
+    // a label brings a new character on screen (a full re-upload is a GPU stall).
+    for (const size of [11, 12, 13]) for (let c = 32; c < 127; c++) this.glyph(String.fromCharCode(c), size);
   }
 
   private reset(): void {

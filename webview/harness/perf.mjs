@@ -21,10 +21,26 @@ const renderer = await page.evaluate(() => {
   const ext = gl?.getExtension("WEBGL_debug_renderer_info");
   return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : "canvas2d";
 });
-await page.evaluate(() => (window.__compassApp.frames.length = 0));
+await page.evaluate(() => {
+  window.__compassApp.frames.length = 0;
+  window.__longTasks = [];
+  new PerformanceObserver((l) => {
+    for (const e of l.getEntries()) window.__longTasks.push(Math.round(e.duration));
+  }).observe({ type: "longtask" });
+});
 const elapsed = 5000;
+// --cached: run the motion once to load tiles, then measure a second identical pass
+// (separates rendering cost from tile streaming cost).
+if (process.argv.includes("--cached")) {
+  await page.evaluate((ms) => window.__compassApp.motionTest(ms), elapsed);
+  await page.waitForTimeout(1500);
+  await page.evaluate(() => {
+    window.__compassApp.frames.length = 0;
+    window.__longTasks.length = 0;
+  });
+}
 const intervals = await page.evaluate((ms) => window.__compassApp.motionTest(ms), elapsed);
-const { frames, items } = await page.evaluate(() => ({ frames: window.__compassApp.frames, items: window.__compassApp.itemCount }));
+const { frames, items, longTasks, breakdown } = await page.evaluate(() => ({ frames: window.__compassApp.frames, items: window.__compassApp.itemCount, longTasks: window.__longTasks, breakdown: window.__compassApp.breakdown.slice(-300) }));
 await browser.close();
 const cpu = frames.map((f) => f[1]).sort((a, b) => a - b);
 const sorted = [...intervals].sort((a, b) => a - b);
@@ -42,5 +58,7 @@ const result = {
   cpuP99: p(cpu, 0.99),
   cpuMax: cpu[cpu.length - 1],
   itemsAtEnd: items,
+  longTasksMs: longTasks,
+  p90: ["assemble", "labels", "render"].map((n, i) => `${n} ${p(breakdown.map((b) => b[i]).sort((a, b) => a - b), 0.9).toFixed(1)}`).join(", "),
 };
 console.log(JSON.stringify(result, null, 2));

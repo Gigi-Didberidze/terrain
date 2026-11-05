@@ -1,7 +1,7 @@
 // Development and test harness: serves the real webview bundle outside VS Code, backed by a real
 // indexer. Used for Playwright visual tests and for profiling the renderer in Chrome DevTools.
 //
-// Usage: node webview/harness/server.mjs <workspaceRoot> [--port 4710] [--binary path]
+// Usage: node webview/harness/server.mjs <workspaceRoot> [--port 4710] [--binary path] [--store db]
 // Then open http://localhost:4710/?theme=dark   (dark | light | hc)
 import { createServer } from "node:http";
 import { readFileSync, existsSync, mkdtempSync } from "node:fs";
@@ -32,7 +32,8 @@ if (!existsSync(join(dist, "main.js"))) {
 }
 
 const rpc = new Rpc(binary);
-const store = join(mkdtempSync(join(tmpdir(), "compass-harness-")), "compass.db");
+// --store reuses an existing index (warm start); default is a fresh temporary store.
+const store = opt("store", join(mkdtempSync(join(tmpdir(), "compass-harness-")), "compass.db"));
 const ready = rpc.request("initialize", { workspaceRoot: root, storePath: store, clientVersion: "harness" });
 const clients = new Set();
 const send = (msg) => {

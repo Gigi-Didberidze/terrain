@@ -34,11 +34,26 @@ export interface Line {
   style: 0 | 1 | 2;
 }
 
+/** One tile's batch, clipped to the tile's world rect so tiles never paint over each other. */
+export interface TileDraw {
+  batch: RectBatch;
+  clip: { x: number; y: number; w: number; h: number };
+}
+
+export interface Frame {
+  view: View;
+  background: [number, number, number, number];
+  tiles: TileDraw[];
+  /** Selection, "you are here", hover and pin outlines, drawn above all tiles. */
+  overlay: RectBatch | null;
+  labels: Label[];
+  lines: Line[];
+}
+
 export interface Renderer {
   readonly kind: "webgl2" | "canvas2d";
   resize(cssWidth: number, cssHeight: number, dpr: number): void;
-  setRects(batch: RectBatch): void;
-  draw(view: View, background: [number, number, number, number], labels: Label[], lines: Line[]): void;
+  draw(frame: Frame): void;
   measure(text: string, size: 11 | 12 | 13): number;
   setFont(family: string): void;
   dispose(): void;

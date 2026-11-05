@@ -1,9 +1,14 @@
 // WebGL2 renderer: instanced rectangles with pixel-snapped 1px strokes, instanced glyph quads,
 // and line strips for edges. Geometry is uploaded only when the scene changes; panning and
 // zooming only change two uniforms.
-import type { View } from "../camera.ts";
 import { GlyphAtlas } from "./glyphs.ts";
-import type { Label, Line, RectBatch, Renderer } from "./types.ts";
+import type { Frame, Label, Line, RectBatch, Renderer } from "./types.ts";
+
+interface GpuBatch {
+  vao: WebGLVertexArrayObject;
+  buffers: WebGLBuffer[];
+  lastUsed: number;
+}
 
 const RECT_VS = `#version 300 es
 layout(location=0) in vec2 a_corner;
@@ -128,19 +133,18 @@ export class GLRenderer implements Renderer {
   private readonly rectProg: WebGLProgram;
   private readonly textProg: WebGLProgram;
   private readonly lineProg: WebGLProgram;
-  private readonly rectVao: WebGLVertexArrayObject;
   private readonly textVao: WebGLVertexArrayObject;
   private readonly lineVao: WebGLVertexArrayObject;
-  private readonly geomBuf: WebGLBuffer;
-  private readonly colorBuf: WebGLBuffer;
-  private readonly strokeBuf: WebGLBuffer;
+  private readonly corner: WebGLBuffer;
+  /** GPU buffers per batch; batches are immutable once built, so identity is the cache key. */
+  private readonly gpu = new Map<RectBatch, GpuBatch>();
+  private frameNo = 0;
   private readonly textBuf: WebGLBuffer;
   private readonly textColorBuf: WebGLBuffer;
   private readonly lineBuf: WebGLBuffer;
   private readonly tex: WebGLTexture;
   private readonly atlas = new GlyphAtlas();
   private atlasVersion = -1;
-  private batch: RectBatch | undefined;
   private dpr = 1;
   private wDev = 1;
   private hDev = 1;
@@ -160,30 +164,7 @@ export class GLRenderer implements Renderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, corner);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
 
-    // Rect VAO.
-    this.rectVao = gl.createVertexArray()!;
-    gl.bindVertexArray(this.rectVao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, corner);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-    this.geomBuf = gl.createBuffer()!;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.geomBuf);
-    gl.enableVertexAttribArray(1);
-    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 16, 0);
-    gl.vertexAttribDivisor(1, 1);
-    this.colorBuf = gl.createBuffer()!;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuf);
-    gl.enableVertexAttribArray(2);
-    gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 8, 0);
-    gl.vertexAttribDivisor(2, 1);
-    gl.enableVertexAttribArray(3);
-    gl.vertexAttribPointer(3, 4, gl.UNSIGNED_BYTE, true, 8, 4);
-    gl.vertexAttribDivisor(3, 1);
-    this.strokeBuf = gl.createBuffer()!;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.strokeBuf);
-    gl.enableVertexAttribArray(4);
-    gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 4, 0);
-    gl.vertexAttribDivisor(4, 1);
+    this.corner = corner;
 
     // Text VAO.
     this.textVao = gl.createVertexArray()!;
@@ -241,45 +222,108 @@ export class GLRenderer implements Renderer {
     this.atlas.configure(this.atlas.family, dpr);
   }
 
-  setRects(batch: RectBatch): void {
+  private upload(b: RectBatch): GpuBatch {
+    let g = this.gpu.get(b);
+    if (g) {
+      g.lastUsed = this.frameNo;
+      return g;
+    }
     const gl = this.gl;
-    this.batch = batch;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.geomBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, batch.geom.subarray(0, batch.count * 4), gl.DYNAMIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, batch.colors.subarray(0, batch.count * 8), gl.DYNAMIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.strokeBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, batch.stroke.subarray(0, batch.count), gl.DYNAMIC_DRAW);
+    const vao = gl.createVertexArray()!;
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.corner);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    const geom = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, geom);
+    gl.bufferData(gl.ARRAY_BUFFER, b.geom.subarray(0, b.count * 4), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 16, 0);
+    gl.vertexAttribDivisor(1, 1);
+    const colors = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, colors);
+    gl.bufferData(gl.ARRAY_BUFFER, b.colors.subarray(0, b.count * 8), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 8, 0);
+    gl.vertexAttribDivisor(2, 1);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 4, gl.UNSIGNED_BYTE, true, 8, 4);
+    gl.vertexAttribDivisor(3, 1);
+    const stroke = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, stroke);
+    gl.bufferData(gl.ARRAY_BUFFER, b.stroke.subarray(0, b.count), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(4);
+    gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 4, 0);
+    gl.vertexAttribDivisor(4, 1);
+    gl.bindVertexArray(null);
+    g = { vao, buffers: [geom, colors, stroke], lastUsed: this.frameNo };
+    this.gpu.set(b, g);
+    return g;
+  }
+
+  /** Frees GPU buffers of batches not drawn for a while. */
+  private evict(): void {
+    if (this.gpu.size < 64) return;
+    for (const [b, g] of this.gpu) {
+      if (this.frameNo - g.lastUsed > 120) {
+        this.gl.deleteVertexArray(g.vao);
+        for (const buf of g.buffers) this.gl.deleteBuffer(buf);
+        this.gpu.delete(b);
+      }
+    }
   }
 
   measure(text: string, size: 11 | 12 | 13): number {
     return this.atlas.measure(text, size);
   }
 
-  draw(view: View, bg: [number, number, number, number], labels: Label[], lines: Line[]): void {
+  draw(f: Frame): void {
     const gl = this.gl;
+    this.frameNo++;
+    const { view } = f;
+    const bg = f.background;
     gl.viewport(0, 0, this.wDev, this.hDev);
+    gl.disable(gl.SCISSOR_TEST);
     gl.clearColor(bg[0] / 255, bg[1] / 255, bg[2] / 255, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    const b = this.batch;
     const dpr = this.dpr;
-    if (b && b.count > 0) {
-      gl.useProgram(this.rectProg);
+    const cssW = this.wDev / dpr;
+    const cssH = this.hDev / dpr;
+    gl.useProgram(this.rectProg);
+    const uScale = gl.getUniformLocation(this.rectProg, "u_scale");
+    const uOffset = gl.getUniformLocation(this.rectProg, "u_offset");
+    gl.uniform2f(gl.getUniformLocation(this.rectProg, "u_viewport"), this.wDev, this.hDev);
+    gl.uniform1f(gl.getUniformLocation(this.rectProg, "u_dpr"), dpr);
+    const drawBatch = (b: RectBatch) => {
+      if (b.count === 0) return;
+      const g = this.upload(b);
       const s = view.scale * b.unit * dpr;
-      const cssW = this.wDev / dpr;
-      const cssH = this.hDev / dpr;
-      const ox = ((b.originX - view.cx) * view.scale + cssW / 2) * dpr;
-      const oy = ((b.originY - view.cy) * view.scale + cssH / 2) * dpr;
-      gl.uniform2f(gl.getUniformLocation(this.rectProg, "u_scale"), s, s);
-      gl.uniform2f(gl.getUniformLocation(this.rectProg, "u_offset"), ox, oy);
-      gl.uniform2f(gl.getUniformLocation(this.rectProg, "u_viewport"), this.wDev, this.hDev);
-      gl.uniform1f(gl.getUniformLocation(this.rectProg, "u_dpr"), dpr);
-      gl.bindVertexArray(this.rectVao);
+      gl.uniform2f(uScale, s, s);
+      gl.uniform2f(uOffset, ((b.originX - view.cx) * view.scale + cssW / 2) * dpr, ((b.originY - view.cy) * view.scale + cssH / 2) * dpr);
+      gl.bindVertexArray(g.vao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, b.count);
+    };
+    gl.enable(gl.SCISSOR_TEST);
+    for (const t of f.tiles) {
+      // Shared tile edges round to the same pixel, so tiles neither overlap nor leave gaps.
+      const x0 = Math.round(((t.clip.x - view.cx) * view.scale + cssW / 2) * dpr);
+      const y0 = Math.round(((t.clip.y - view.cy) * view.scale + cssH / 2) * dpr);
+      const x1 = Math.round(((t.clip.x + t.clip.w - view.cx) * view.scale + cssW / 2) * dpr);
+      const y1 = Math.round(((t.clip.y + t.clip.h - view.cy) * view.scale + cssH / 2) * dpr);
+      const cx0 = Math.max(0, x0);
+      const cy0 = Math.max(0, y0);
+      const cx1 = Math.min(this.wDev, x1);
+      const cy1 = Math.min(this.hDev, y1);
+      if (cx1 <= cx0 || cy1 <= cy0) continue;
+      gl.scissor(cx0, this.hDev - cy1, cx1 - cx0, cy1 - cy0);
+      drawBatch(t.batch);
     }
-    if (lines.length) this.drawLines(lines);
-    if (labels.length) this.drawLabels(labels);
+    gl.disable(gl.SCISSOR_TEST);
+    if (f.overlay) drawBatch(f.overlay);
+    if (f.lines.length) this.drawLines(f.lines);
+    if (f.labels.length) this.drawLabels(f.labels);
     gl.bindVertexArray(null);
+    this.evict();
   }
 
   private drawLines(lines: Line[]): void {
