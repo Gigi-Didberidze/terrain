@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M4 — History (M3 done; M2's linux measurement deferred, see below)
+**Current milestone:** M5 — Neighbourhood, Path and Review (M4 done; M2's linux measurement deferred, see below)
 
 ## M0 — Skeleton: done
 - Monorepo: Rust indexer workspace (`core`, `parse`, `git`, `engine`, `rpc`), extension host, webview, shared protocol schema with generated bindings.
@@ -89,8 +89,23 @@ vscode top 20 (sanity check): base/common linkedList, lifecycle, uri, iterator, 
 
 Review log: the first ranking was wrong (template/loader_tags.py #1, a 486-file "cycle"), traced to the global name-matching tier; three rounds of fixes (D30, D31) produced the lists above.
 
+## M4 — History: done (gate below)
+- compass-git: history mined with gix (no `git` process), commit file lists diffed in parallel; incremental from the merge base of the old and new HEAD, so branch switches and rebases forget dropped commits (D37). Commits persist in the store; a restart re-reads them instead of re-mining.
+- Churn (commits in the last 90 days), ownership by commits for the lens and by lines (blame) in the sidebar (D35), co-change coupling with support ≥ 5 (D36).
+- Hidden dependencies: coupled pairs with no static edge, data/generated files left out, ranked by evidence. Co-change joins the Leiden graph. Misplaced files (D38).
+- Lenses 3 (Churn), 4 (Coupling: partners of the selection, red = hidden, everything else muted) and 5 (Ownership, with an author key in the legend); hover cards show churn and owner.
+- Sidebar: Churn, Owner, "Changes with" (partners, hidden ones marked). Commands: Show Misplaced Files, Show Hidden Dependencies. `.git/logs/HEAD` changes refresh history within ~1 s.
+
+### M4 gate (vscode, full history: 126,385 commits, blobless clone)
+| Gate | Result |
+| --- | --- |
+| History mined in < 60 s | 18.7 s mining, 19.9 s including statistics and the store write |
+| Incremental update on new commits in < 1 s | 10 new commits: 485 ms end to end (mine 7 ms, statistics 267 ms, re-clustering with co-change); restart with nothing new: 561 ms |
+
+Quality review: the first hidden-dependency list on vscode was led by test snapshots and translation files, and misplaced files included source modules "at home" in tests/ (on a private project) and files linked to a folder only through a cluster. After D38 and the evidence ranking, vscode's top pairs are dark/light theme files, generated .js next to their .ts, horizontal/vertical scrollbar, keybindingsSync/settingsSync; on the private project, JS files with their HTML templates, and the one misplaced file is used only from another package.
+
 ## Next
-- M4: git history with gix (churn, co-change coupling, ownership), lenses 3–5, hidden-dependency flags, misplaced-files list.
+- M5: Neighbourhood view (ELK layered), Path view, LSP enrichment of visible nodes, Change lens, status-bar review entry, SVG export, full keyboard map.
 - Pending: linux measurement with symbols and edges (memory).
 
 ## Open questions

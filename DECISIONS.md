@@ -138,3 +138,19 @@ Each entry: the decision, the alternatives, the reason.
 - Alternatives: area = line count for every file (the first version); hide data files entirely.
 - Reason: Raised by the user: in a real project two CSV files took the largest boxes on the map, only because of their row count. The map promises area = lines of code, and rows of data are not code. Data files (CSV/TSV/JSONL/Parquet, logs, datasets, SVG, translations such as .po, and JSON/XML/YAML/TXT/SQL over 2,000 lines) stay on the map, drawn in the quieter fill, but count as at most 50 lines. The hover card shows both numbers ("data · 48,210 lines (counted as 50)"). The setting turns the cap off for repositories where the data is the point. Data files are no longer scanned for path mentions.
 
+
+## D35 — Ownership on the map is by commits; the sidebar shows ownership by lines (blame)
+- Alternatives: blame every visible file for the Ownership lens, as the plan suggests.
+- Reason: Blame costs one history walk per file (hundreds of milliseconds on long-lived files in vscode), so a lens over thousands of tiles would either stall or fill in slowly and change under the reader. The top author by commits comes free from the mined history and agrees with blame on most files. Blame is computed for the file in the Context sidebar only, once per file per history change, and the sidebar names which measure it shows ("% of lines" or "% of commits").
+
+## D36 — Co-change rules: support ≥ 5, degree ≥ 0.3, commits over 50 files ignored, no rename tracking
+- Alternatives: rename tracking; confidence (shared / commits of one file) instead of a symmetric degree.
+- Reason: Degree = shared commits / mean of both files' commits is symmetric, so A↔B reads the same from both sides. Mass commits (reformatting, licence headers, renames) touch everything and say nothing about coupling. Rename tracking needs blob comparisons for every commit and would put the vscode gate out of reach; renamed files simply start a new history. Merge commits carry no file list (their changes already appear in the merged commits). Co-change edges join the Leiden graph with weight 2 × degree (static edges weigh about 1); they never add import or call edges.
+
+## D37 — Mining is incremental from the merge base; dropped commits are forgotten
+- Alternatives: re-mine everything when HEAD moves to an unrelated commit.
+- Reason: On a branch switch, reset or rebase, the old head is no longer an ancestor of the new one. The miner walks HEAD hiding the merge base of old and new head, and lists the commits past the base on the old side so the store forgets them. Only an unknown or unrelated old head (history rewritten from the root) triggers a full re-mine. The extension asks for a refresh when `.git/logs/HEAD` changes (commit, checkout, pull, reset), coalesced for 1 s.
+
+## D38 — Misplaced files: dominant-community test, excluding tests and nesting
+- Alternatives: any file whose community differs from its folder's majority.
+- Reason: A file is listed when its folder (≥ 3 files) is dominated (≥ 50%) by one community, its own community has at least half of its members in one other folder, and that folder is neither an ancestor nor a descendant of the file's own. Test, generated and data files are left out: on a real project, tests importing their subjects made every source module look "at home" in tests/. Nested folders are ordinary structure (a pipelines/ subfolder belonging to its parent's module). On the same project, the two remaining flags were one file used only from another package (real) and one nesting case, now excluded.
