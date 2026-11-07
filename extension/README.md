@@ -48,7 +48,7 @@ Open a folder and run **Terrain: Open Map** (Ctrl+Alt+M, Cmd+Alt+M on macOS). Th
 | Enter | Open the selection in the editor |
 | Arrow keys | Move to the neighbouring tile (map) or along edges (Neighbourhood) |
 | `+` `-` `0` | Zoom in, out, fit |
-| `1`–`6` | Lens |
+| `1`-`6` | Lens |
 | `M` `N` `P` | Map, Neighbourhood of the selection, Path from the pinned (or previous) node to the selection |
 | `F` | Follow the editor on or off |
 | Backspace | Back in selection history |
@@ -82,7 +82,7 @@ Measured on a 4-core laptop (i5-1135G7, 8 GB):
 | Update after saving a file | 23 ms |
 | Neighbourhood of any symbol | p99 4.5 ms on django; 13 ms for vscode's busiest file |
 | Full git history of vscode (126,385 commits) | 19 s once, then 0.5 s per new batch of commits |
-| Pan and zoom on the linux kernel at file level | 58–60 fps |
+| Pan and zoom on the linux kernel at file level | 58-60 fps |
 
 ## Privacy
 

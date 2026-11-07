@@ -1,4 +1,4 @@
-// Lenses colour the map by exactly one measure at a time (keys 1–6). Colours come from theme
+// Lenses colour the map by exactly one measure at a time (keys 1-6). Colours come from theme
 // tokens; the legend always names the measure and its unit.
 import { contrast, mix, ramp, type RGBA, type Theme } from "./render/theme.ts";
 import { FLAG_BLAST, FLAG_CHANGED, KIND_DIR, KIND_FILE, type Item } from "./tiles.ts";
@@ -10,7 +10,7 @@ export interface LensDef {
   name: string;
   /** One line: what colour means, with the unit. */
   legend: string;
-  /** Needs git history (lenses 3–5 are unavailable outside a repository). */
+  /** Needs git history (lenses 3-5 are unavailable outside a repository). */
   history?: boolean;
   /** Needs a base branch or working-tree changes (lens 6). */
   review?: boolean;

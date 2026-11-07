@@ -9,8 +9,8 @@ Every commit follows this exact structure. No exceptions, no extra trailers.
 
 Milestone: <M0..M7 | none>
 Changed:
-- <path/to/file> — <function or item changed>
-- <path/to/file> — <function or item changed>
+- <path/to/file>: <function or item changed>
+- <path/to/file>: <function or item changed>
 Why: <one or two lines on the reason>
 Verified: <tests / benchmark run, with numbers when relevant>
 ```

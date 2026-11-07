@@ -28,7 +28,7 @@ pub const MIN_PX: f64 = 3.0;
 /// File side, in pixels, from which its symbols are drawn (semantic zoom).
 pub const SYMBOL_PX: f64 = 56.0;
 pub const MAX_ZOOM: u32 = 22;
-/// Items per tile. About 12–20 tiles cover a viewport, keeping the webview near 50k items.
+/// Items per tile. About 12-20 tiles cover a viewport, keeping the webview near 50k items.
 pub const TILE_ITEM_LIMIT: usize = 4096;
 
 /// Tile-only flag: changed on the current branch (Change lens).
