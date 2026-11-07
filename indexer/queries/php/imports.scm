@@ -1,1 +1,6 @@
-; TODO(M2): Tier 1 queries for php
+(namespace_use_clause (qualified_name) @import)
+(namespace_use_clause (name) @import)
+(include_expression (string (string_content) @import))
+(include_once_expression (string (string_content) @import))
+(require_expression (string (string_content) @import))
+(require_once_expression (string (string_content) @import))

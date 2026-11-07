@@ -97,3 +97,20 @@ Each entry: the decision, the alternatives, the reason.
 ## D24 — Calls inside Rust macro invocations are not seen
 - Alternatives: re-parse macro token trees as expressions.
 - Reason: tree-sitter parses macro arguments as token trees, so `println!("{}", order.total())` yields no call edge. Re-parsing token trees is guesswork (macros define their own syntax). Accepted as a known gap; LSP enrichment (M5) adds the semantic edges for visible symbols.
+
+## D25 — C/C++: definitions with bodies only; object-like #defines skipped
+- Alternatives: the grammars' tags.scm, which treats every prototype as a definition and every #define as a constant.
+- Reason: Calls should land on the implementation in the .c file, not on its prototype in a header. Object-like macros number in the millions in large C trees (linux) and would dominate the map and the 1 GB memory budget without saying much about structure; function-like macros are kept as functions.
+
+## D26 — Known Kotlin grammar limitation: one-line bodies after expression functions
+- Alternatives: patch or fork tree-sitter-kotlin-ng.
+- Reason: tree-sitter-kotlin-ng 1.1.0 mis-parses `{ fun f() = x }` on a single line (and some alias imports), wrapping the rest of the file in an ERROR node. Idiomatic multi-line Kotlin parses fully (fixture and snippet tests). Logged rather than worked around; revisit when the grammar updates.
+
+## D27 — "Same package" means same directory or same declared package/namespace
+- Alternatives: same directory only.
+- Reason: Java and Kotlin keep tests in a separate source root (src/test/java/...) in the same package as the code; C# and PHP namespaces span directories. The Java fixture showed OrderTest's calls falling to the weak global tier. Files that declare a common package now resolve each other's names in the package tier.
+
+## D28 — No edges from a file to its own symbols
+- Alternatives: keep them.
+- Reason: A file-level reference to something defined in the same file (a C prototype naming a struct in the same header, a Python `__main__` guard calling main) says nothing about dependencies between parts of the system, and shows up as a self-loop on the map.
+

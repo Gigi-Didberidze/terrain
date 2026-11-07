@@ -282,12 +282,26 @@ impl Semantic {
                 .unwrap_or(file);
             let ok = |&&s: &&u32| {
                 let n = g.node(s);
-                n.alive() && compatible(r.kind, n.kind) && s != src
+                // A file pointing at its own contents (e.g. a C prototype naming a struct in the
+                // same header) says nothing about dependencies.
+                n.alive()
+                    && compatible(r.kind, n.kind)
+                    && s != src
+                    && !(src == file && n.file == file)
+            };
+            // Same package: same directory, or the same declared package/namespace (Java and
+            // Kotlin keep tests in another source root; C# and PHP namespaces span directories).
+            let same_package = |f: u32| {
+                g.node(f).parent == dir
+                    || (!facts.namespaces.is_empty()
+                        && self.facts.get(&f).is_some_and(|o| {
+                            o.namespaces.iter().any(|n| facts.namespaces.contains(n))
+                        }))
             };
             let tiers: [Box<dyn Fn(u32) -> bool>; 4] = [
                 Box::new(|s| g.node(s).file == file),
                 Box::new(|s| imported.contains(&g.node(s).file)),
-                Box::new(|s| g.node(g.node(s).file).parent == dir),
+                Box::new(|s| same_package(g.node(s).file)),
                 Box::new(|s| family(g.node(s).lang) == fam),
             ];
             for (i, tier) in tiers.iter().enumerate() {

@@ -1,0 +1,22 @@
+{
+  "edges": [
+    "src/main/kotlin/com/acme/app/Main.kt -imports-> src/main/kotlin/com/acme/core/Order.kt",
+    "src/main/kotlin/com/acme/app/Main.kt::main -calls-> src/main/kotlin/com/acme/core/Order.kt::Order",
+    "src/main/kotlin/com/acme/app/Main.kt::main -calls-> src/main/kotlin/com/acme/core/Order.kt::Order.add",
+    "src/main/kotlin/com/acme/app/Main.kt::main -calls-> src/main/kotlin/com/acme/core/Order.kt::Order.total (0.50)",
+    "src/main/kotlin/com/acme/app/Main.kt::main -calls-> src/main/kotlin/com/acme/core/Order.kt::Priced.total (0.50)",
+    "src/main/kotlin/com/acme/core/Order.kt::Order -implements-> src/main/kotlin/com/acme/core/Order.kt::Priced",
+    "src/main/kotlin/com/acme/core/Order.kt::Order.total -calls-> src/main/kotlin/com/acme/core/Order.kt::roundCents"
+  ],
+  "nodes": [
+    "class src/main/kotlin/com/acme/core/Order.kt::Order [exported]",
+    "class src/main/kotlin/com/acme/core/Order.kt::Priced [exported]",
+    "file src/main/kotlin/com/acme/app/Main.kt",
+    "file src/main/kotlin/com/acme/core/Order.kt",
+    "function src/main/kotlin/com/acme/app/Main.kt::main [exported,entry]",
+    "function src/main/kotlin/com/acme/core/Order.kt::roundCents [exported]",
+    "method src/main/kotlin/com/acme/core/Order.kt::Order.add [exported]",
+    "method src/main/kotlin/com/acme/core/Order.kt::Order.total [exported]",
+    "method src/main/kotlin/com/acme/core/Order.kt::Priced.total [exported]"
+  ]
+}

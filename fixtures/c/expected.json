@@ -1,0 +1,23 @@
+{
+  "edges": [
+    "src/main.c -imports-> include/shop.h",
+    "src/main.c::main -calls-> src/order.c::order_total",
+    "src/main.c::main -references-> include/shop.h::order",
+    "src/money.c -imports-> include/shop.h",
+    "src/order.c -imports-> include/shop.h",
+    "src/order.c::order_total -calls-> src/money.c::round_cents",
+    "src/order.c::order_total -calls-> src/order.c::sum",
+    "src/order.c::order_total -references-> include/shop.h::order"
+  ],
+  "nodes": [
+    "class include/shop.h::order [exported]",
+    "file include/shop.h",
+    "file src/main.c",
+    "file src/money.c",
+    "file src/order.c",
+    "function src/main.c::main [exported,entry]",
+    "function src/money.c::round_cents [exported]",
+    "function src/order.c::order_total [exported]",
+    "function src/order.c::sum"
+  ]
+}

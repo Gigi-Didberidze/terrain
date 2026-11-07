@@ -1,1 +1,2 @@
-; TODO(M2): Tier 1 queries for csharp
+(using_directive (qualified_name) @import)
+(using_directive (identifier) @import)

@@ -1,0 +1,35 @@
+{
+  "edges": [
+    "src/main/java/com/acme/App.java -imports-> src/main/java/com/acme/core/Order.java",
+    "src/main/java/com/acme/App.java::App.main -calls-> src/main/java/com/acme/core/Order.java::Order",
+    "src/main/java/com/acme/App.java::App.main -calls-> src/main/java/com/acme/core/Order.java::Order.add",
+    "src/main/java/com/acme/App.java::App.main -calls-> src/main/java/com/acme/core/Order.java::Order.total",
+    "src/main/java/com/acme/App.java::App.main -references-> src/main/java/com/acme/core/Order.java::Order (2.00)",
+    "src/main/java/com/acme/core/Order.java::Order -implements-> src/main/java/com/acme/core/Priced.java::Priced",
+    "src/main/java/com/acme/core/Order.java::Order.total -calls-> src/main/java/com/acme/core/Money.java::Money.round",
+    "src/test/java/com/acme/core/OrderTest.java::OrderTest.totalRoundsToWholeUnits -calls-> src/main/java/com/acme/core/Order.java::Order",
+    "src/test/java/com/acme/core/OrderTest.java::OrderTest.totalRoundsToWholeUnits -calls-> src/main/java/com/acme/core/Order.java::Order.add",
+    "src/test/java/com/acme/core/OrderTest.java::OrderTest.totalRoundsToWholeUnits -calls-> src/main/java/com/acme/core/Order.java::Order.total (0.50)",
+    "src/test/java/com/acme/core/OrderTest.java::OrderTest.totalRoundsToWholeUnits -calls-> src/main/java/com/acme/core/Priced.java::Priced.total (0.50)",
+    "src/test/java/com/acme/core/OrderTest.java::OrderTest.totalRoundsToWholeUnits -references-> src/main/java/com/acme/core/Order.java::Order (2.00)"
+  ],
+  "nodes": [
+    "class src/main/java/com/acme/App.java::App [exported]",
+    "class src/main/java/com/acme/core/Money.java::Money [exported]",
+    "class src/main/java/com/acme/core/Order.java::Order [exported]",
+    "class src/test/java/com/acme/core/OrderTest.java::OrderTest [exported,entry]",
+    "file src/main/java/com/acme/App.java",
+    "file src/main/java/com/acme/core/Money.java",
+    "file src/main/java/com/acme/core/Order.java",
+    "file src/main/java/com/acme/core/Priced.java",
+    "file src/test/java/com/acme/core/OrderTest.java [entry]",
+    "method src/main/java/com/acme/App.java::App.main [exported,entry]",
+    "method src/main/java/com/acme/core/Money.java::Money.Money",
+    "method src/main/java/com/acme/core/Money.java::Money.round [exported]",
+    "method src/main/java/com/acme/core/Order.java::Order.add [exported]",
+    "method src/main/java/com/acme/core/Order.java::Order.total [exported]",
+    "method src/main/java/com/acme/core/Priced.java::Priced.total [exported]",
+    "method src/test/java/com/acme/core/OrderTest.java::OrderTest.totalRoundsToWholeUnits [exported,entry]",
+    "type src/main/java/com/acme/core/Priced.java::Priced [exported]"
+  ]
+}

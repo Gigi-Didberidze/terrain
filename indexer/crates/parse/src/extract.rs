@@ -325,6 +325,7 @@ pub fn extract_tree(spec: &Spec, tree: &Tree, src: &[u8]) -> FileFacts {
         for m in &import_matches {
             let mut path: Option<Node> = None;
             let mut is_mod = false;
+            let mut is_rel = false;
             let mut imported = Vec::new();
             for &(cn, node) in m {
                 match cn {
@@ -333,14 +334,20 @@ pub fn extract_tree(spec: &Spec, tree: &Tree, src: &[u8]) -> FileFacts {
                         path = Some(node);
                         is_mod = true;
                     }
+                    "import.rel" => {
+                        path = Some(node);
+                        is_rel = true;
+                    }
                     "import.name" => imported.push(text(node, src).to_string()),
                     _ => {}
                 }
             }
             let Some(p) = path else { continue };
-            let mut spec_text = unquote(text(p, src));
+            let mut spec_text = normalize_import(&unquote(text(p, src)));
             if is_mod {
                 spec_text = format!("mod:{spec_text}");
+            } else if is_rel && !spec_text.starts_with('.') {
+                spec_text = format!("./{spec_text}");
             }
             if spec_text.is_empty() {
                 continue;
@@ -490,6 +497,34 @@ fn regroup(facts: &mut FileFacts, owners: &[Option<String>], impls: &[bool]) {
     for r in facts.refs.iter_mut() {
         r.from = r.from.map(|f| remap(f as usize) as u32);
     }
+}
+
+/// Whole import statements (Java, Kotlin, Swift) become their specifier:
+/// `import static a.b.C.m;` → `static a.b.C.m`, `import Foundation` → `Foundation`.
+fn normalize_import(s: &str) -> String {
+    let t = s.trim().trim_end_matches(';').trim();
+    let t = t
+        .strip_prefix("import ")
+        .or_else(|| t.strip_prefix("using "))
+        .unwrap_or(t)
+        .trim();
+    // Kotlin/Swift aliases: `import a.b.C as D`.
+    let t = t.split(" as ").next().unwrap_or(t).trim();
+    // Swift import kinds: `import struct Foo.Bar` → `Foo.Bar`.
+    let t = [
+        "struct ",
+        "class ",
+        "enum ",
+        "protocol ",
+        "func ",
+        "var ",
+        "let ",
+        "typealias ",
+    ]
+    .iter()
+    .find_map(|k| t.strip_prefix(k))
+    .unwrap_or(t);
+    t.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn unquote(s: &str) -> String {

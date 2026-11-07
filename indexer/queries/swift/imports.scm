@@ -1,1 +1,2 @@
-; TODO(M2): Tier 1 queries for swift
+; Whole statement; normalised to the module name by the extractor.
+(import_declaration) @import

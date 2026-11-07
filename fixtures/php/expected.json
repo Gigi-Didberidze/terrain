@@ -1,0 +1,23 @@
+{
+  "edges": [
+    "app/Http/Controllers/UserController.php -imports-> app/Models/User.php",
+    "app/Http/Controllers/UserController.php::UserController.show -calls-> app/Models/User.php::User.displayName",
+    "app/Http/Controllers/UserController.php::UserController.show -calls-> app/Models/User.php::User.find",
+    "app/Models/User.php::User -inherits-> app/Models/Model.php::Model",
+    "app/Models/User.php::User.find -calls-> app/Models/Model.php::Model.query",
+    "app/Models/User.php::User.find -references-> app/Models/User.php::User"
+  ],
+  "nodes": [
+    "class app/Http/Controllers/UserController.php::UserController [exported]",
+    "class app/Models/Model.php::Model [exported]",
+    "class app/Models/User.php::User [exported]",
+    "file app/Http/Controllers/UserController.php",
+    "file app/Models/Model.php",
+    "file app/Models/User.php",
+    "file composer.json",
+    "method app/Http/Controllers/UserController.php::UserController.show [exported]",
+    "method app/Models/Model.php::Model.query [exported]",
+    "method app/Models/User.php::User.displayName [exported]",
+    "method app/Models/User.php::User.find [exported]"
+  ]
+}

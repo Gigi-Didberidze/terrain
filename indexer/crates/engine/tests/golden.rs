@@ -67,3 +67,43 @@ fn golden_go() {
 fn golden_rust() {
     check("rust");
 }
+
+#[test]
+fn golden_java() {
+    check("java");
+}
+
+#[test]
+fn golden_c() {
+    check("c");
+}
+
+#[test]
+fn golden_cpp() {
+    check("cpp");
+}
+
+#[test]
+fn golden_csharp() {
+    check("csharp");
+}
+
+#[test]
+fn golden_kotlin() {
+    check("kotlin");
+}
+
+#[test]
+fn golden_ruby() {
+    check("ruby");
+}
+
+#[test]
+fn golden_php() {
+    check("php");
+}
+
+#[test]
+fn golden_swift() {
+    check("swift");
+}

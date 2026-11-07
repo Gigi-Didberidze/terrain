@@ -1,0 +1,22 @@
+{
+  "edges": [
+    "Sources/App/main.swift -calls-> Sources/Models/Order.swift::Order",
+    "Sources/App/main.swift -calls-> Sources/Models/Order.swift::Order.add",
+    "Sources/App/main.swift -calls-> Sources/Models/Order.swift::Order.total (0.50)",
+    "Sources/App/main.swift -calls-> Sources/Models/Order.swift::Priced.total (0.50)",
+    "Sources/App/main.swift -imports-> Sources/Models/Order.swift",
+    "Sources/Models/Order.swift::Order -inherits-> Sources/Models/Order.swift::Priced",
+    "Sources/Models/Order.swift::Order.total -calls-> Sources/Models/Order.swift::roundCents"
+  ],
+  "nodes": [
+    "class Sources/Models/Order.swift::Order [exported]",
+    "file Sources/App/main.swift",
+    "file Sources/Models/Order.swift",
+    "function Sources/Models/Order.swift::roundCents [exported]",
+    "method Sources/Models/Order.swift::Order.add [exported]",
+    "method Sources/Models/Order.swift::Order.init [exported]",
+    "method Sources/Models/Order.swift::Order.total [exported]",
+    "method Sources/Models/Order.swift::Priced.total [exported]",
+    "type Sources/Models/Order.swift::Priced [exported]"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "edges": [
+    "lib/billing.rb -imports-> lib/billing/invoice.rb",
+    "lib/billing.rb -imports-> lib/billing/tax.rb",
+    "lib/billing/invoice.rb::Billing.Invoice.<=> -calls-> lib/billing/invoice.rb::Billing.Invoice.total",
+    "lib/billing/invoice.rb::Billing.Invoice.total -calls-> lib/billing/tax.rb::Billing.Tax.apply",
+    "spec/invoice_spec.rb -calls-> lib/billing/invoice.rb::Billing.Invoice.total (0.50)",
+    "spec/invoice_spec.rb -imports-> lib/billing.rb",
+    "spec/invoice_spec.rb -references-> lib/billing/invoice.rb::Billing.Invoice"
+  ],
+  "nodes": [
+    "class lib/billing/invoice.rb::Billing.Invoice [exported]",
+    "constant lib/billing.rb::Billing.VERSION [exported]",
+    "constant lib/billing/tax.rb::Billing.Tax.RATE [exported]",
+    "file lib/billing.rb",
+    "file lib/billing/invoice.rb",
+    "file lib/billing/tax.rb",
+    "file spec/invoice_spec.rb [entry]",
+    "method lib/billing/invoice.rb::Billing.Invoice.<=> [exported]",
+    "method lib/billing/invoice.rb::Billing.Invoice.initialize [exported]",
+    "method lib/billing/invoice.rb::Billing.Invoice.total [exported]",
+    "method lib/billing/tax.rb::Billing.Tax.apply [exported]",
+    "module lib/billing.rb::Billing [exported]",
+    "module lib/billing/invoice.rb::Billing [exported]",
+    "module lib/billing/tax.rb::Billing [exported]",
+    "module lib/billing/tax.rb::Billing.Tax [exported]"
+  ]
+}

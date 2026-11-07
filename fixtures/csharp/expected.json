@@ -1,0 +1,29 @@
+{
+  "edges": [
+    "Core/Order.cs::Acme.Core.Order -inherits-> Core/Order.cs::Acme.Core.IPriced",
+    "Core/Order.cs::Acme.Core.Order.Total -calls-> Core/Money.cs::Acme.Core.Money.Round",
+    "Web/OrdersController.cs -imports-> Core/Money.cs (0.50)",
+    "Web/OrdersController.cs -imports-> Core/Order.cs (0.50)",
+    "Web/OrdersController.cs::Acme.Web.OrdersController.Get -calls-> Core/Order.cs::Acme.Core.IPriced.Total (0.50)",
+    "Web/OrdersController.cs::Acme.Web.OrdersController.Get -calls-> Core/Order.cs::Acme.Core.Order",
+    "Web/OrdersController.cs::Acme.Web.OrdersController.Get -calls-> Core/Order.cs::Acme.Core.Order.Add",
+    "Web/OrdersController.cs::Acme.Web.OrdersController.Get -calls-> Core/Order.cs::Acme.Core.Order.Total (0.50)"
+  ],
+  "nodes": [
+    "class Core/Money.cs::Acme.Core.Money [exported]",
+    "class Core/Order.cs::Acme.Core.Order [exported]",
+    "class Web/OrdersController.cs::Acme.Web.OrdersController [exported,entry]",
+    "file Core/Money.cs",
+    "file Core/Order.cs",
+    "file Web/OrdersController.cs",
+    "method Core/Money.cs::Acme.Core.Money.Round [exported]",
+    "method Core/Order.cs::Acme.Core.IPriced.Total [exported]",
+    "method Core/Order.cs::Acme.Core.Order.Add [exported]",
+    "method Core/Order.cs::Acme.Core.Order.Total [exported]",
+    "method Web/OrdersController.cs::Acme.Web.OrdersController.Get [exported,entry]",
+    "module Core/Money.cs::Acme.Core [exported]",
+    "module Core/Order.cs::Acme.Core [exported]",
+    "module Web/OrdersController.cs::Acme.Web [exported]",
+    "type Core/Order.cs::Acme.Core.IPriced [exported]"
+  ]
+}

@@ -1,1 +1,2 @@
-; TODO(M2): Tier 1 queries for c
+(preproc_include path: (string_literal) @import)
+(preproc_include path: (system_lib_string) @import)

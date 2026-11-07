@@ -1,0 +1,23 @@
+{
+  "edges": [
+    "include/geo/shape.hpp::geo.Circle -inherits-> include/geo/shape.hpp::geo.Shape",
+    "src/circle.cpp -imports-> include/geo/shape.hpp",
+    "src/circle.cpp::area -calls-> src/circle.cpp::square",
+    "src/main.cpp -imports-> include/geo/shape.hpp",
+    "src/main.cpp::main -calls-> src/circle.cpp::area",
+    "src/main.cpp::main -references-> include/geo/shape.hpp::geo.Circle",
+    "src/main.cpp::main -references-> include/geo/shape.hpp::geo.Shape"
+  ],
+  "nodes": [
+    "class include/geo/shape.hpp::geo.Circle [exported]",
+    "class include/geo/shape.hpp::geo.Shape [exported]",
+    "file include/geo/shape.hpp",
+    "file src/circle.cpp",
+    "file src/main.cpp",
+    "function src/circle.cpp::square [exported]",
+    "function src/main.cpp::main [exported,entry]",
+    "method include/geo/shape.hpp::geo.Circle.Circle [exported]",
+    "method src/circle.cpp::area [exported]",
+    "module include/geo/shape.hpp::geo [exported]"
+  ]
+}

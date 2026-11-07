@@ -1,6 +1,5 @@
 {
   "edges": [
-    "main.py -calls-> main.py::main",
     "main.py -imports-> shop/__init__.py",
     "main.py::main -calls-> shop/services.py::checkout (0.50)",
     "shop/__init__.py -imports-> shop/services.py",

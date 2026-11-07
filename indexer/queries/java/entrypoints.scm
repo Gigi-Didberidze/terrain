@@ -1,1 +1,10 @@
-; TODO(M2): Tier 1 queries for java
+((method_declaration name: (identifier) @entry) (#eq? @entry "main"))
+; Tests, Spring mappings, beans and scheduled jobs.
+((method_declaration (modifiers (marker_annotation name: (identifier) @_a)) name: (identifier) @entry)
+ (#match? @_a "^(Test|ParameterizedTest|RepeatedTest|Bean|Scheduled|PostConstruct|[A-Za-z]*Mapping)$"))
+((method_declaration (modifiers (annotation name: (identifier) @_a)) name: (identifier) @entry)
+ (#match? @_a "^(Test|ParameterizedTest|Bean|Scheduled|[A-Za-z]*Mapping|EventListener)$"))
+((class_declaration (modifiers (marker_annotation name: (identifier) @_a)) name: (identifier) @entry)
+ (#match? @_a "^(SpringBootApplication|RestController|Controller|Configuration|Component|Service|Repository)$"))
+((class_declaration (modifiers (annotation name: (identifier) @_a)) name: (identifier) @entry)
+ (#match? @_a "^(SpringBootApplication|RestController|Controller|RequestMapping|Configuration)$"))

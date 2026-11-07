@@ -1,1 +1,5 @@
-; TODO(M2): Tier 1 queries for csharp
+((method_declaration name: (identifier) @entry) (#eq? @entry "Main"))
+((method_declaration (attribute_list (attribute name: (identifier) @_a)) name: (identifier) @entry)
+ (#match? @_a "^(Test|TestCase|Fact|Theory|TestMethod|HttpGet|HttpPost|HttpPut|HttpDelete|HttpPatch|Route|FunctionName)$"))
+((class_declaration (attribute_list (attribute name: (identifier) @_a)) name: (identifier) @entry)
+ (#match? @_a "^(ApiController|Route|TestFixture|TestClass)$"))

@@ -1,1 +1,5 @@
-; TODO(M2): Tier 1 queries for kotlin
+((function_declaration name: (identifier) @entry) (#eq? @entry "main"))
+((function_declaration (modifiers (annotation (user_type (identifier) @_a))) name: (identifier) @entry)
+ (#match? @_a "^(Test|ParameterizedTest|Composable|Preview|[A-Za-z]*Mapping|Bean)$"))
+((function_declaration (modifiers (annotation (type (user_type (identifier) @_a)))) name: (identifier) @entry)
+ (#match? @_a "^(Test|ParameterizedTest|Composable|Preview|[A-Za-z]*Mapping|Bean)$"))

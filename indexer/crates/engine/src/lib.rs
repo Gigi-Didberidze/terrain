@@ -1012,7 +1012,8 @@ mod tests {
         .unwrap();
         std::fs::write(ws.path().join("src/new.rs"), "x\n").unwrap();
         std::fs::remove_file(ws.path().join("README.md")).unwrap();
-        let t = Instant::now();
+        // The 50 ms budget is measured by bench/run.mjs (incremental.saveOneFileMs); a wall-clock
+        // assertion here would fail whenever the machine is busy.
         assert!(apply_changes(
             &e,
             &[
@@ -1022,7 +1023,6 @@ mod tests {
             ],
             &NoEvents
         ));
-        assert!(t.elapsed().as_millis() < 50);
         let cold = Engine::new(ws.path(), None, Options::default()).shared();
         run_index(&cold, &NoEvents);
         let snapshot = |s: &Shared| {
