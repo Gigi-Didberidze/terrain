@@ -1,0 +1,28 @@
+{
+  "edges": [
+    "cmd/shop/main.go -imports-> order/order.go",
+    "cmd/shop/main.go::main -calls-> order/order.go::Order",
+    "cmd/shop/main.go::main -calls-> order/order.go::Order.Total",
+    "cmd/shop/main.go::main -references-> order/order.go::Order",
+    "order/order.go::Order -references-> order/order.go::Item",
+    "order/order.go::Order.Total -calls-> order/order.go::sum",
+    "order/order.go::Order.Total -references-> order/order.go::Order",
+    "order/order.go::sum -references-> order/order.go::Item",
+    "order/order_test.go::TestTotal -calls-> order/order.go::Order",
+    "order/order_test.go::TestTotal -calls-> order/order.go::Order.Total",
+    "order/order_test.go::TestTotal -references-> order/order.go::Item",
+    "order/order_test.go::TestTotal -references-> order/order.go::Order"
+  ],
+  "nodes": [
+    "class order/order.go::Item [exported]",
+    "class order/order.go::Order [exported]",
+    "file cmd/shop/main.go [entry]",
+    "file go.mod",
+    "file order/order.go",
+    "file order/order_test.go [entry]",
+    "function cmd/shop/main.go::main [entry]",
+    "function order/order.go::sum",
+    "function order/order_test.go::TestTotal [exported,entry]",
+    "method order/order.go::Order.Total [exported]"
+  ]
+}

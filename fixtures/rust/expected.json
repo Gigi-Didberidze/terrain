@@ -1,0 +1,22 @@
+{
+  "edges": [
+    "src/lib.rs -imports-> src/order.rs",
+    "src/lib.rs -imports-> src/pricing.rs",
+    "src/main.rs -imports-> src/lib.rs",
+    "src/order.rs -imports-> src/pricing.rs",
+    "src/order.rs::Order.total -calls-> src/order.rs::Order.subtotal",
+    "src/order.rs::Order.total -calls-> src/pricing.rs::discount"
+  ],
+  "nodes": [
+    "class src/order.rs::Order [exported]",
+    "file Cargo.toml",
+    "file src/lib.rs",
+    "file src/main.rs",
+    "file src/order.rs",
+    "file src/pricing.rs",
+    "function src/main.rs::main [entry]",
+    "function src/pricing.rs::discount [exported]",
+    "method src/order.rs::Order.subtotal",
+    "method src/order.rs::Order.total [exported]"
+  ]
+}

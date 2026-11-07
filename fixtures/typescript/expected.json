@@ -1,0 +1,36 @@
+{
+  "edges": [
+    "README.md -references-> src/app.ts",
+    "src/app.ts -imports-> src/core/store.ts",
+    "src/app.ts -imports-> src/util/index.ts",
+    "src/app.ts::activate -calls-> src/core/store.ts::Store",
+    "src/app.ts::activate -calls-> src/core/store.ts::Store.set",
+    "src/app.ts::activate -calls-> src/util/index.ts::formatCount",
+    "src/app.ts::activate -references-> src/core/store.ts::Store",
+    "src/core/event.ts::Emitter -implements-> src/core/event.ts::Disposable",
+    "src/core/store.ts -imports-> src/core/event.ts",
+    "src/core/store.ts::Store -calls-> src/core/event.ts::Emitter",
+    "src/core/store.ts::Store -implements-> src/core/event.ts::Disposable",
+    "src/core/store.ts::Store.dispose -calls-> src/core/event.ts::Disposable.dispose (0.50)",
+    "src/core/store.ts::Store.dispose -calls-> src/core/event.ts::Emitter.dispose (0.50)",
+    "src/core/store.ts::Store.set -calls-> src/core/event.ts::Emitter.fire"
+  ],
+  "nodes": [
+    "class src/core/event.ts::Emitter [exported]",
+    "class src/core/store.ts::Store [exported]",
+    "file README.md",
+    "file src/app.ts",
+    "file src/core/event.ts",
+    "file src/core/store.ts",
+    "file src/util/index.ts",
+    "file tsconfig.json",
+    "function src/app.ts::activate [exported,entry]",
+    "function src/util/index.ts::formatCount [exported]",
+    "method src/core/event.ts::Disposable.dispose [exported]",
+    "method src/core/event.ts::Emitter.dispose [exported]",
+    "method src/core/event.ts::Emitter.fire [exported]",
+    "method src/core/store.ts::Store.dispose [exported]",
+    "method src/core/store.ts::Store.set [exported]",
+    "type src/core/event.ts::Disposable [exported]"
+  ]
+}

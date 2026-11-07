@@ -152,6 +152,16 @@ impl Store {
         Ok(())
     }
 
+    /// Drops cached facts if they were produced by a different extractor version.
+    pub fn check_extractor_version(&self, version: u32) -> Result<()> {
+        let v = version.to_string();
+        if self.meta("extractor_version")?.as_deref() != Some(v.as_str()) {
+            self.conn.execute("DELETE FROM facts", [])?;
+            self.set_meta("extractor_version", &v)?;
+        }
+        Ok(())
+    }
+
     /// Deletes facts no file references any more.
     pub fn gc_facts(&self) -> Result<usize> {
         self.conn.execute(

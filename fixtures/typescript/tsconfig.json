@@ -1,0 +1,4 @@
+{
+  // Path aliases resolve through baseUrl.
+  "compilerOptions": { "baseUrl": "src", "paths": { "@core/*": ["core/*"] } },
+}

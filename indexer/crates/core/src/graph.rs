@@ -65,6 +65,17 @@ impl Graph {
 
     pub const ROOT: u32 = 0;
 
+    /// Sets or clears a flag on a live node.
+    pub fn set_flag(&mut self, slot: u32, flag: u16, on: bool) {
+        if let Some(n) = self.nodes.get_mut(slot as usize) {
+            if on {
+                n.flags |= flag;
+            } else {
+                n.flags &= !flag;
+            }
+        }
+    }
+
     /// Reserves room for about `files` more files (and their directories) before a bulk load.
     pub fn reserve(&mut self, files: usize) {
         let n = files + files / 4;

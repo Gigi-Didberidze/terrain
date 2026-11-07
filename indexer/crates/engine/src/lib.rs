@@ -1,6 +1,9 @@
 //! compass-engine: the indexing pipeline (discover → hash → parse → resolve → analyse → persist)
 //! and the queries every view runs against the graph.
 
+pub mod imports;
+pub mod project;
+pub mod resolve;
 pub mod scan;
 pub mod search;
 
@@ -9,8 +12,10 @@ use compass_core::model::*;
 use compass_core::store::{FileRow, Store};
 use compass_core::tiles::{self, LensValues};
 use compass_core::Graph;
+use compass_parse::FileFacts;
 use parking_lot::{Mutex, RwLock};
 use rayon::prelude::*;
+use resolve::Semantic;
 use scan::{Discovered, DEFAULT_SIZE_CAP};
 use search::SearchIndex;
 use std::collections::HashSet;
@@ -72,6 +77,8 @@ pub struct Engine {
     pub timings: Timings,
     /// Set once any tile has been served (lets the warm start prioritise the first view).
     tiles_served: Arc<std::sync::atomic::AtomicBool>,
+    /// Facts, name index and resolution state.
+    pub sem: Semantic,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -127,6 +134,7 @@ impl Engine {
             phase: Phase::Idle,
             timings: Timings::default(),
             tiles_served: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            sem: Semantic::default(),
         }
     }
 
@@ -140,6 +148,7 @@ impl Engine {
         let slot = self
             .graph
             .upsert_file(&row.path, row.loc, row.lang, row.flags) as usize;
+        self.sem.files.add(&row.path);
         if self.meta.len() <= slot {
             self.meta.resize(slot + 1, FileMeta::default());
         }
@@ -176,14 +185,45 @@ impl Engine {
         shared.write().search.extend(entries);
     }
 
-    fn drop_file(&mut self, path: &str) {
+    /// Removes a file; returns definition names that disappeared with it.
+    fn drop_file(&mut self, path: &str) -> std::collections::HashSet<Box<str>> {
+        let mut changed = std::collections::HashSet::new();
         if let Some(slot) = self.graph.slot_of_path(path) {
             for s in self.graph.file_symbols(slot) {
                 self.search.remove(s);
             }
             self.search.remove(slot);
+            changed = self.sem.remove_file(&mut self.graph, slot);
         }
+        self.sem.files.remove(path);
         self.graph.remove_file(path);
+        changed
+    }
+
+    /// Installs a file's facts: symbols on the map, search entries, name index.
+    /// Returns the definition names whose presence changed.
+    fn apply_facts(
+        &mut self,
+        file: u32,
+        facts: Option<Arc<FileFacts>>,
+    ) -> std::collections::HashSet<Box<str>> {
+        for s in self.graph.file_symbols(file) {
+            self.search.remove(s);
+        }
+        let is_test = self.graph.node(file).flags & flags::TEST != 0;
+        let changed = self.sem.set_facts(&mut self.graph, file, facts, is_test);
+        let path = self.graph.path(file).unwrap_or("").to_string();
+        for s in self.graph.file_symbols(file) {
+            let name = self.graph.node(s).name.to_string();
+            self.search.upsert(s, &name, &path);
+        }
+        changed
+    }
+
+    /// Re-reads project configuration (tsconfig, go.mod, Cargo.toml, ...) from the file list.
+    fn refresh_project(&mut self) {
+        let paths: Vec<String> = self.graph.files().map(|(_, p)| p.to_string()).collect();
+        self.sem.project = project::Project::discover(&self.root, paths.iter().map(|s| s.as_str()));
     }
 
     /// Current file list as store rows.
@@ -214,9 +254,9 @@ impl Engine {
         }
     }
 
-    fn persist(&self, rows: &[FileRow], deleted: &[String]) {
+    fn persist(&self, rows: &[FileRow], facts: &[([u8; 32], Vec<u8>)], deleted: &[String]) {
         if let Some(store) = &self.store {
-            if let Err(e) = store.lock().write_batch(rows, &[], deleted) {
+            if let Err(e) = store.lock().write_batch(rows, facts, deleted) {
                 eprintln!("store write failed: {e}");
             }
         }
@@ -305,6 +345,15 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
         let e = shared.read();
         (e.root.clone(), e.options.size_cap)
     };
+
+    if let Some(store) = &shared.read().store {
+        if let Err(e) = store
+            .lock()
+            .check_extractor_version(compass_parse::EXTRACTOR_VERSION)
+        {
+            eprintln!("store: {e}");
+        }
+    }
 
     // Warm start: everything we knew last time is on the map before we touch the disk.
     let rows = {
@@ -406,7 +455,7 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
         for p in &gone {
             e.drop_file(p);
         }
-        e.persist(&[], &gone);
+        e.persist(&[], &[], &gone);
         e.timings.discover_ms = ms(t0);
         let epoch = e.graph.epoch;
         drop(e);
@@ -421,30 +470,24 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
     events.progress(Phase::Hash, 0, total);
     for chunk in to_scan.chunks(BATCH) {
         let tc = Instant::now();
-        let scanned: Vec<(Discovered, scan::Scanned)> = chunk
-            .par_iter()
-            .filter_map(|d| scan::scan_file(&root, d, size_cap, false).map(|s| (d.clone(), s)))
-            .collect();
+        let processed = process_chunk(shared, &root, chunk, size_cap);
         let scan_ms = ms(tc);
         let tm = Instant::now();
         let mut e = shared.write();
-        let mut rows = Vec::with_capacity(scanned.len());
-        for (d, s) in scanned {
-            let row = FileRow {
-                path: d.path,
-                hash: s.hash,
-                size: d.size,
-                mtime: d.mtime,
-                loc: s.loc,
-                lang: s.lang,
-                flags: s.flags,
-            };
-            rows.push(row.clone());
-            e.put_file(&row, true);
+        let mut rows = Vec::with_capacity(processed.len());
+        let mut new_facts = Vec::new();
+        for p in processed {
+            e.put_file(&p.row, true);
+            let slot = e.graph.slot_of_path(&p.row.path).unwrap();
+            e.apply_facts(slot, p.facts.clone());
+            if let (Some(f), true) = (&p.facts, p.fresh) {
+                new_facts.push((p.row.hash, f.encode()));
+            }
+            rows.push(p.row);
         }
         let merge_ms = ms(tm);
         let tp = Instant::now();
-        e.persist(&rows, &[]);
+        e.persist(&rows, &new_facts, &[]);
         if trace {
             eprintln!(
                 "hash batch: scan {scan_ms:.0} ms, merge {merge_ms:.0} ms, persist {:.0} ms",
@@ -458,8 +501,23 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
         events.changed(epoch, true);
     }
 
+    shared.write().timings.hash_ms = ms(t0);
+
+    // Facts for files that did not change since last time come from the store.
+    if warm {
+        load_cached_facts(shared);
+    }
+
+    // Resolve: compute under the read lock, apply in batches so the map stays responsive.
+    set_phase(shared, Phase::Resolve);
+    shared.write().refresh_project();
+    let all = shared.read().sem.files_with_facts();
+    resolve_in_batches(shared, &all, events);
+    if trace {
+        eprintln!("resolve: {} files, total {:.0} ms", all.len(), ms(t0));
+    }
+
     let mut e = shared.write();
-    e.timings.hash_ms = ms(t0);
     e.timings.total_ms = ms(t0);
     e.phase = Phase::Idle;
     e.save_snapshot();
@@ -470,70 +528,285 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
     t
 }
 
+/// Config files whose change can alter import resolution everywhere.
+fn is_project_config(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    matches!(
+        name,
+        "tsconfig.json"
+            | "jsconfig.json"
+            | "package.json"
+            | "go.mod"
+            | "Cargo.toml"
+            | "composer.json"
+            | "compile_commands.json"
+    )
+}
+
 /// Incremental update for paths reported by the editor or the file watcher (saves, creates,
-/// deletes, branch switches). Returns true if the map changed.
+/// deletes, branch switches). Re-resolves only what the change can affect. Returns true if the
+/// map changed.
 pub fn apply_changes(shared: &Shared, paths: &[String], events: &dyn Events) -> bool {
     let (root, size_cap) = {
         let e = shared.read();
         (e.root.clone(), e.options.size_cap)
     };
-    let work: Vec<(String, Option<(Discovered, scan::Scanned)>)> = paths
-        .par_iter()
-        .map(|p| {
-            let full = root.join(p);
-            match std::fs::metadata(&full) {
-                Ok(m) if m.is_file() => {
-                    let d = Discovered {
-                        path: p.clone(),
-                        size: m.len(),
-                        mtime: scan::mtime_ns(&m),
-                    };
-                    let s = scan::scan_file(&root, &d, size_cap, false);
-                    (p.clone(), s.map(|s| (d, s)))
-                }
-                _ => (p.clone(), None),
-            }
+    let existing: Vec<Discovered> = paths
+        .iter()
+        .filter_map(|p| {
+            let m = std::fs::metadata(root.join(p))
+                .ok()
+                .filter(|m| m.is_file())?;
+            Some(Discovered {
+                path: p.clone(),
+                size: m.len(),
+                mtime: scan::mtime_ns(&m),
+            })
         })
         .collect();
+    let processed = process_chunk(shared, &root, &existing, size_cap);
+    let present: HashSet<&str> = existing.iter().map(|d| d.path.as_str()).collect();
     let mut e = shared.write();
     let before = e.graph.layout_epoch;
     let mut rows = Vec::new();
+    let mut new_facts = Vec::new();
     let mut gone = Vec::new();
-    for (p, r) in work {
-        match r {
-            Some((d, s)) => {
-                if e.meta_of(&p).is_some_and(|old| old.hash == s.hash) {
-                    continue;
-                }
-                let row = FileRow {
-                    path: d.path,
-                    hash: s.hash,
-                    size: d.size,
-                    mtime: d.mtime,
-                    loc: s.loc,
-                    lang: s.lang,
-                    flags: s.flags,
-                };
-                rows.push(row.clone());
-                e.put_file(&row, true);
-            }
-            None => {
-                if e.meta_of(&p).is_some() {
-                    e.drop_file(&p);
-                    gone.push(p);
-                }
-            }
+    let mut changed_names: HashSet<Box<str>> = HashSet::new();
+    let mut touched: HashSet<u32> = HashSet::new();
+    let mut structural = false;
+    for p in processed {
+        if e.meta_of(&p.row.path)
+            .is_some_and(|old| old.hash == p.row.hash)
+        {
+            continue;
+        }
+        structural |= e.graph.slot_of_path(&p.row.path).is_none() || is_project_config(&p.row.path);
+        e.put_file(&p.row, true);
+        let slot = e.graph.slot_of_path(&p.row.path).unwrap();
+        changed_names.extend(e.apply_facts(slot, p.facts.clone()));
+        touched.insert(slot);
+        if let (Some(f), true) = (&p.facts, p.fresh) {
+            new_facts.push((p.row.hash, f.encode()));
+        }
+        rows.push(p.row);
+    }
+    for p in paths {
+        if !present.contains(p.as_str()) && e.meta_of(p).is_some() {
+            changed_names.extend(e.drop_file(p));
+            structural = true;
+            gone.push(p.clone());
         }
     }
     if rows.is_empty() && gone.is_empty() {
         return false;
     }
-    e.persist(&rows, &gone);
+    e.persist(&rows, &new_facts, &gone);
+    let affected: Vec<u32> = if structural {
+        // Files appeared or vanished, or project config changed: any import may resolve
+        // differently now.
+        e.refresh_project();
+        e.sem.files_with_facts()
+    } else {
+        let mut a = e.sem.referencing(&changed_names);
+        a.extend(touched);
+        let mut v: Vec<u32> = a
+            .into_iter()
+            .filter(|&f| e.graph.get(f).is_some())
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    if affected.len() <= 2000 {
+        let Engine { sem, graph, .. } = &mut *e;
+        sem.resolve_files(graph, &affected);
+    }
     let epoch = e.graph.epoch;
     let layout = e.graph.layout_epoch != before;
     drop(e);
+    if affected.len() > 2000 {
+        resolve_in_batches(shared, &affected, events);
+    }
     events.changed(epoch, layout);
     true
+}
+
+/// One file after reading, hashing and extraction.
+struct Processed {
+    row: FileRow,
+    facts: Option<Arc<FileFacts>>,
+    /// Extracted now (not from the cache): to be persisted.
+    fresh: bool,
+}
+
+/// Whether a language gets facts: Tier 1/2 via tree-sitter, Tier 3 via path mentions.
+fn wants_facts(lang: Lang) -> bool {
+    compass_parse::langs::spec(lang).is_some()
+        || matches!(
+            lang,
+            Lang::Markdown
+                | Lang::Yaml
+                | Lang::Json
+                | Lang::Toml
+                | Lang::Dockerfile
+                | Lang::Shell
+                | Lang::Html
+        )
+}
+
+fn extract_facts(lang: Lang, content: &[u8]) -> Option<FileFacts> {
+    if compass_parse::langs::spec(lang).is_some() {
+        return compass_parse::extract(lang, content);
+    }
+    let paths = compass_parse::tier3::path_candidates(lang, content);
+    if paths.is_empty() {
+        return None;
+    }
+    Some(FileFacts {
+        imports: paths
+            .into_iter()
+            .map(|(p, line)| compass_parse::Import {
+                path: format!("{}{p}", resolve::PATH_PREFIX),
+                names: Vec::new(),
+                line,
+            })
+            .collect(),
+        ..Default::default()
+    })
+}
+
+/// Reads, hashes and extracts a chunk of files in parallel; cached facts are reused by hash.
+fn process_chunk(
+    shared: &Shared,
+    root: &Path,
+    chunk: &[Discovered],
+    size_cap: u64,
+) -> Vec<Processed> {
+    let scanned: Vec<(Discovered, scan::Scanned)> = chunk
+        .par_iter()
+        .filter_map(|d| {
+            let keep = wants_facts(Lang::from_path(&d.path));
+            scan::scan_file(root, d, size_cap, keep).map(|s| (d.clone(), s))
+        })
+        .collect();
+    // Cache lookup (one short lock per chunk).
+    let cached: Vec<Option<Arc<FileFacts>>> = {
+        let e = shared.read();
+        match &e.store {
+            Some(st) => {
+                let st = st.lock();
+                scanned
+                    .iter()
+                    .map(|(_, s)| {
+                        s.content
+                            .as_ref()
+                            .and_then(|_| st.facts(&s.hash).ok().flatten())
+                            .and_then(|b| FileFacts::decode(&b))
+                            .map(Arc::new)
+                    })
+                    .collect()
+            }
+            None => vec![None; scanned.len()],
+        }
+    };
+    let trace = std::env::var_os("COMPASS_TRACE").is_some();
+    let slow: Mutex<Vec<(f64, String, u64)>> = Mutex::new(Vec::new());
+    let out = scanned
+        .into_par_iter()
+        .zip(cached)
+        .map(|((d, s), cached)| {
+            let t = Instant::now();
+            let (facts, fresh) = match (cached, &s.content) {
+                (Some(f), _) => (Some(f), false),
+                (None, Some(c)) => (extract_facts(s.lang, c).map(Arc::new), true),
+                (None, None) => (None, false),
+            };
+            if trace {
+                slow.lock().push((ms(t), d.path.clone(), d.size));
+            }
+            let row = FileRow {
+                path: d.path,
+                hash: s.hash,
+                size: d.size,
+                mtime: d.mtime,
+                loc: s.loc,
+                lang: s.lang,
+                flags: s.flags,
+            };
+            Processed { row, facts, fresh }
+        })
+        .collect();
+    if trace {
+        let mut v = slow.into_inner();
+        let total: f64 = v.iter().map(|x| x.0).sum();
+        v.sort_by(|a, b| b.0.total_cmp(&a.0));
+        eprintln!(
+            "extract: {:.0} ms cpu over {} files; slowest:",
+            total,
+            v.len()
+        );
+        for (t, p, size) in v.iter().take(6) {
+            eprintln!("  {t:.0} ms  {size} B  {p}");
+        }
+    }
+    out
+}
+
+/// Warm start: facts of unchanged files, decoded in parallel from one pass over the store.
+fn load_cached_facts(shared: &Shared) {
+    let mut blobs: Vec<(String, Vec<u8>)> = Vec::new();
+    {
+        let e = shared.read();
+        let Some(st) = &e.store else { return };
+        let missing: HashSet<&str> = e
+            .graph
+            .files()
+            .filter(|(slot, p)| !e.sem.has_facts(*slot) && wants_facts(Lang::from_path(p)))
+            .map(|(_, p)| p)
+            .collect();
+        let _ = st.lock().for_each_live_fact(|path, data| {
+            if missing.contains(path.as_str()) {
+                blobs.push((path, data));
+            }
+        });
+    }
+    let decoded: Vec<(String, Arc<FileFacts>)> = blobs
+        .into_par_iter()
+        .filter_map(|(p, b)| FileFacts::decode(&b).map(|f| (p, Arc::new(f))))
+        .collect();
+    for chunk in decoded.chunks(BATCH) {
+        let mut e = shared.write();
+        for (p, f) in chunk {
+            if let Some(slot) = e.graph.slot_of_path(p) {
+                e.apply_facts(slot, Some(f.clone()));
+            }
+        }
+    }
+}
+
+/// Resolves files: edges are computed in parallel under the read lock and applied in batches
+/// under the write lock, so tile requests keep being served.
+fn resolve_in_batches(shared: &Shared, files: &[u32], events: &dyn Events) {
+    let total = files.len() as u64;
+    let mut done = 0;
+    for chunk in files.chunks(BATCH * 2) {
+        let results: Vec<resolve::FileEdges> = {
+            let e = shared.read();
+            chunk
+                .par_iter()
+                .filter_map(|&f| e.sem.compute(&e.graph, f))
+                .collect()
+        };
+        let mut e = shared.write();
+        let Engine { sem, graph, .. } = &mut *e;
+        for fe in results {
+            sem.apply(graph, fe);
+        }
+        done += chunk.len() as u64;
+        let epoch = e.graph.epoch;
+        drop(e);
+        events.progress(Phase::Resolve, done, total);
+        events.changed(epoch, false);
+    }
 }
 
 fn set_phase(shared: &Shared, p: Phase) {
@@ -643,7 +916,12 @@ mod tests {
         let buf = e.tile(0, 0, 0);
         assert_eq!(&buf[0..4], b"CMPT");
         let hits = e.search.search("main", 5, |_| 0.0);
-        assert_eq!(e.graph.path(hits[0].slot), Some("src/main.rs"));
+        // The function `main` (exact name) ranks first; its file is among the hits too.
+        let first = e.graph.node(hits[0].slot);
+        assert_eq!((first.kind, &*first.name), (NodeKind::Function, "main"));
+        assert!(hits
+            .iter()
+            .any(|h| e.graph.path(h.slot) == Some("src/main.rs")));
         assert_eq!(
             e.locate("src/main.rs", None),
             e.graph.slot_of_path("src/main.rs")
