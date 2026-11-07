@@ -1,0 +1,31 @@
+name: marketplace status
+
+# Read-only: lists every uploaded version of the extension on the VS Code Marketplace with its
+# platform and verification state, including uploads not yet listed publicly (the public listing
+# only shows verified ones). Run by hand from the Actions tab.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Versions and verification state
+        env: { VSCE_PAT: "${{ secrets.VSCE_PAT }}" }
+        run: |
+          # IncludeVersions (0x1) | IncludeFiles (0x2) | IncludeVersionProperties (0x10) | IncludeInstallationTargets (0x40)
+          curl -sf -u ":$VSCE_PAT" \
+            "https://marketplace.visualstudio.com/_apis/gallery/publishers/gigi-didberidze/extensions/terrain?flags=83&api-version=3.0-preview.1" \
+            -o ext.json
+          python3 - <<'PY'
+          import json
+          e = json.load(open("ext.json"))
+          print(f"{e.get('displayName')}  flags={e.get('flags')}")
+          for v in e.get("versions", []):
+              print(f"  {v.get('version')}  {v.get('targetPlatform') or 'universal':13}  flags={v.get('flags')!s:28}  "
+                    f"updated={v.get('lastUpdated')}  validation={v.get('validationResultMessage') or '-'}")
+          PY
