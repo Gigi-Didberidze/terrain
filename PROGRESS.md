@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M2 — Symbols and edges (gate: linux measurement pending)
+**Current milestone:** M4 — History (M3 done; M2's linux measurement deferred, see below)
 
 ## M0 — Skeleton: done
 - Monorepo: Rust indexer workspace (`core`, `parse`, `git`, `engine`, `rpc`), extension host, webview, shared protocol schema with generated bindings.
@@ -61,14 +61,37 @@ Done:
 | Golden tests for every Tier 1 fixture | 12/12 pass | met |
 | Import resolution ≥ 95% vs language tooling (1,000 imports) | django 1000/1000 vs Python PathFinder (0 false edges); vscode 999/1000 vs TypeScript resolveModuleName (8 extras are CSS/JSON imports tsc doesn't model) | met |
 | Cold index ~1M LOC < 15 s (with symbols and edges) | vscode 8.7 s (96k symbols, 201k calls, 52k imports), django 3.7–4.1 s; RSS 251 MB / 121–131 MB | met |
-| Cold index linux < 4 min | in progress | |
+| Cold index linux < 4 min, RSS < 1 GB | not measured: the run was stopped by the OS at ~66k of 86k files because the machine ran low on memory (8 GB shared with the editor and browser). Deferred by the user; to re-run with memory reporting | open |
 
 Profiling log (measure first):
 - vscode cold 13.7 s (budget 15 s) → per-file timing: extraction 4.2× slower in parallel than alone → mimalloc (D19): 13.2 s → per-query timing: four whole-tree walks per file → one combined query (D20): 8.7 s.
 - Accuracy run found two real bugs: a same-length suffix match (django.utils.version → an unrelated __init__.py) and 67 false standard-library edges in Python (D22). Both fixed; regression tests added.
 
+## M3 — Meaning: done (gate below)
+- Load-bearing score: PageRank over the file dependency graph and the symbol graph (D29), shown on a log scale (D32).
+- Fan-in/out in hover cards; blast radius (transitive dependents, depth ≤ 6) at symbol, file and directory level.
+- Leiden communities on the file graph, deterministic (D33); 8 largest coloured.
+- Import cycles at file and directory level (Tarjan), each with the edge whose removal breaks most of it (D31).
+- Entry points per language; dead-code candidates (labelled candidates); cyclomatic complexity on demand.
+- Lenses 1 (Structure) and 2 (Load-bearing); keys 3–6 say which milestone brings them.
+- Context sidebar (native tree, follows the cursor or the map selection); CodeLens `N callers · blast N · N tests` (plus complexity when ≥ 10); Compass: Show Cycles / Show Dead-Code Candidates.
+- Analysis runs after indexing and again 500 ms after edits settle, off the request path: django 38–71 ms, vscode 203 ms.
+
+### M3 gate
+| Gate | Result |
+| --- | --- |
+| django top 20 load-bearing files reviewed by hand | 19/20 judged core (below); utils/archive.py questionable |
+| Cycle list matches dependency-cruiser on vscode `src/` | Compass finds all 384 files dependency-cruiser reports in cycles (100%); 6 extra files trace to one real 4-file loop (event → lifecycle → arrays → sequence → event) whose every edge dependency-cruiser itself reports but does not flag |
+
+django top 20 (final run): 1 utils/datastructures · 2 utils/functional · 3 utils/connection · 4 utils/deprecation · 5 core/exceptions · 6 utils/hashable · 7 conf/__init__ · 8 utils/deconstruct · 9 db/models/__init__ · 10 utils/version · 11 utils/regex_helper · 12 utils/archive (questionable: likely name-matched `extract` calls) · 13 utils/translation/__init__ · 14 test/utils · 15 urls/__init__ · 16 db/__init__ · 17 utils/timezone · 18 utils/dateformat · 19 db/models/expressions · 20 django/__init__.
+
+vscode top 20 (sanity check): base/common linkedList, lifecycle, uri, iterator, event, buffer, stream, arrays, skipList, resourceTree, prefixTree, dataTransfer; nls; a notebook test helper file (questionable); base/common/path; platform/instantiation; nls.messages; editor/common/core/position; base/common/async; base/common/platform.
+
+Review log: the first ranking was wrong (template/loader_tags.py #1, a 486-file "cycle"), traced to the global name-matching tier; three rounds of fixes (D30, D31) produced the lists above.
+
 ## Next
-- Record the linux gate with symbols and edges; then M3: PageRank load-bearing score, fan-in/out, blast radius, Leiden communities, cycles, entry points, dead-code candidates, complexity; lenses 1 and 2; sidebar tree; CodeLens.
+- M4: git history with gix (churn, co-change coupling, ownership), lenses 3–5, hidden-dependency flags, misplaced-files list.
+- Pending: linux measurement with symbols and edges (memory).
 
 ## Open questions
 - None.

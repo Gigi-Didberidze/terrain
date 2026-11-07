@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 const require = createRequire(import.meta.url);
-const ts = require("typescript5");
+const ts = require("typescript"); // TypeScript 5 from bench/accuracy (the JS compiler API)
 
 const [root, file] = process.argv.slice(2);
 const sampleIdx = process.argv.indexOf("--sample");

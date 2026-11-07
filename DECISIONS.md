@@ -114,3 +114,23 @@ Each entry: the decision, the alternatives, the reason.
 - Alternatives: keep them.
 - Reason: A file-level reference to something defined in the same file (a C prototype naming a struct in the same header, a Python `__main__` guard calling main) says nothing about dependencies between parts of the system, and shows up as a self-loop on the map.
 
+## D29 — PageRank runs along dependency edges
+- Alternatives: PageRank on the literally reversed graph, as the plan's wording suggests.
+- Reason: Rank flows from a node to what it points at. With edges as "A depends on B", rank accumulates on what many (important) things depend on, which is the plan's definition of load-bearing ("many things rest on this"). Reversing the edges would rank files that depend on much, the opposite. Verified on django and vscode, whose top 20 are their core utility modules.
+
+## D30 — The global fallback tier resolves bare calls to free functions only
+- Alternatives: any unique name match (D21 as first written).
+- Reason: Reviewing django's load-bearing ranking found three kinds of false edges from the global tier: method calls on built-ins (`xs.append()` → the one user class defining `append`), qualified calls (`datetime.date()` → a free function `date`), and type names (a local `type T` in vscode captured every generic `T`). The fallback now accepts only unqualified calls (recorded per reference as `member`), to free functions or classes, with names longer than two characters. Types, methods and qualified calls bind through imports, same file or same package.
+
+## D31 — Cycles are import cycles
+- Alternatives: strongly connected components of the full dependency graph (calls included).
+- Reason: Mutual calls across files are ordinary; "circular dependency" means import cycles, which is also what dependency-cruiser reports. Rust `mod foo;` declarations are recorded as containment, not imports, so a crate's module tree does not form false cycles with `use crate::...`.
+
+## D32 — Load-bearing colour uses a log scale of PageRank, not percentiles
+- Alternatives: percentile rank.
+- Reason: About 70% of files tie at the floor (nothing depends on them), so percentiles lit every file with any dependents at full strength. A log scale between the smallest and largest score keeps strong colour for what actually holds the codebase up.
+
+## D33 — Leiden refinement is greedy and deterministic
+- Alternatives: the randomised refinement of the original algorithm.
+- Reason: The map must not change colours between two runs on the same code. Nodes are visited in path order and the refinement merges greedily (the θ → 0 limit), which keeps the well-connected guarantee and makes communities reproducible.
+

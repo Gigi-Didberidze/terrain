@@ -11,8 +11,5 @@
     "build": "npm run build -w webview && npm run build -w extension",
     "typecheck": "npm run typecheck -w webview && npm run typecheck -w extension",
     "test": "npm test -w webview && npm test -w extension"
-  },
-  "devDependencies": {
-    "typescript5": "npm:typescript@^5.9.3"
   }
 }

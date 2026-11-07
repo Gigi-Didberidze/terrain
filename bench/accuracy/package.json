@@ -1,0 +1,9 @@
+{
+  "name": "compass-accuracy",
+  "private": true,
+  "description": "Oracles for import and cycle accuracy checks (TypeScript 5 has the compiler API that dependency-cruiser and ts.resolveModuleName need; the workspace uses TypeScript 7).",
+  "devDependencies": {
+    "dependency-cruiser": "^18.7.2",
+    "typescript": "^5.9.3"
+  }
+}
