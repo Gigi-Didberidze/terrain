@@ -1,10 +1,13 @@
-// Entry point. Activation only registers commands and listeners; the indexer process starts
-// lazily the first time something needs it (budget: activation < 20 ms).
+// Entry point. Activation only registers commands, views and listeners; the indexer process
+// starts lazily the first time something needs it (budget: activation < 20 ms).
 import * as vscode from "vscode";
+import type { CycleView, NodeRef } from "../../protocol/generated/protocol.ts";
 import { Session } from "./session.ts";
 import { MapController } from "./mapController.ts";
 import { Watcher } from "./watcher.ts";
 import { MapPanel } from "./panel.ts";
+import { ContextView, openNodeRef } from "./views/contextView.ts";
+import { CompassCodeLens } from "./views/codeLens.ts";
 
 let session: Session | undefined;
 
@@ -12,8 +15,11 @@ export interface CompassApi {
   session: Session;
   map: MapController;
   watcher: Watcher;
+  context: ContextView;
   activationMs: number;
 }
+
+const CODE_LANGUAGES = ["typescript", "typescriptreact", "javascript", "javascriptreact", "python", "rust", "go", "java", "c", "cpp", "csharp", "kotlin", "ruby", "php", "swift", "lua"];
 
 export function activate(context: vscode.ExtensionContext): CompassApi {
   const t0 = performance.now();
@@ -21,10 +27,28 @@ export function activate(context: vscode.ExtensionContext): CompassApi {
   session = s;
   const map = new MapController(context, s);
   const watcher = new Watcher(s);
+  const contextView = new ContextView(s);
+  const lens = new CompassCodeLens(s);
+  map.onSelection.event((slot) => {
+    if (slot !== null) void contextView.showSlot(slot);
+  });
+  s.onStart((client) => {
+    client.on("map/changed", () => {
+      contextView.refresh();
+      lens.refresh();
+    });
+  });
+  const root = () => s.workspaceRoot ?? "";
   context.subscriptions.push(
     s,
     map,
     watcher,
+    contextView,
+    lens,
+    vscode.languages.registerCodeLensProvider(
+      CODE_LANGUAGES.map((language) => ({ language, scheme: "file" })),
+      lens,
+    ),
     vscode.commands.registerCommand("compass.openMap", () => map.open()),
     vscode.commands.registerCommand("compass.reindex", async () => {
       await s.restart();
@@ -35,8 +59,57 @@ export function activate(context: vscode.ExtensionContext): CompassApi {
       const panel = MapPanel.current ?? (await map.open());
       panel.post({ type: "command", command: "search" });
     }),
+    vscode.commands.registerCommand("compass.openNodeRef", (r: NodeRef) => openNodeRef(root(), r)),
+    vscode.commands.registerCommand("compass.revealNode", async (slot: number) => {
+      await contextView.showSlot(slot);
+      await vscode.commands.executeCommand("compass.context.focus");
+      if (MapPanel.current) await map.reveal(slot);
+    }),
+    vscode.commands.registerCommand("compass.showCycles", () => showCycles(s, map)),
+    vscode.commands.registerCommand("compass.showDeadCode", () => showDeadCode(s, map)),
   );
-  return { session: s, map, watcher, activationMs: performance.now() - t0 };
+  return { session: s, map, watcher, context: contextView, activationMs: performance.now() - t0 };
+}
+
+/** Import cycles, largest first; picking one reveals it and names the edge that breaks it. */
+async function showCycles(s: Session, map: MapController): Promise<void> {
+  const client = await s.get();
+  const r = await client.request("analysis/cycles", null);
+  type Pick = vscode.QuickPickItem & { cycle?: CycleView };
+  const describe = (c: CycleView): Pick => ({
+    label: `${c.members.length} ${c.members[0]?.kind === "dir" ? "directories" : "files"}`,
+    description: c.members.slice(0, 3).map((m) => m.path || m.name).join(", ") + (c.members.length > 3 ? ", ..." : ""),
+    detail: c.breakFrom && c.breakTo ? `Breaking ${c.breakFrom.path || c.breakFrom.name} → ${c.breakTo.path || c.breakTo.name} removes the most of it` : undefined,
+    cycle: c,
+  });
+  const items: Pick[] = [
+    { label: "Files", kind: vscode.QuickPickItemKind.Separator },
+    ...r.files.map(describe),
+    { label: "Directories", kind: vscode.QuickPickItemKind.Separator },
+    ...r.dirs.map(describe),
+  ];
+  if (!r.files.length && !r.dirs.length) {
+    void vscode.window.showInformationMessage("Compass: no import cycles found.");
+    return;
+  }
+  const pick = await vscode.window.showQuickPick(items, { placeHolder: `${r.files.length} file cycles, ${r.dirs.length} directory cycles`, matchOnDescription: true, matchOnDetail: true });
+  const first = pick?.cycle?.breakFrom ?? pick?.cycle?.members[0];
+  if (first) await map.reveal(first.slot);
+}
+
+async function showDeadCode(s: Session, map: MapController): Promise<void> {
+  const client = await s.get();
+  const r = await client.request("analysis/dead", { limit: 2000 });
+  type Pick = vscode.QuickPickItem & { ref: NodeRef };
+  const items: Pick[] = r.items.map((ref) => ({ label: ref.name, description: `${ref.kind} · ${ref.path}:${ref.line}`, ref }));
+  const pick = await vscode.window.showQuickPick(items, {
+    placeHolder: `${r.total.toLocaleString("en-US")} dead-code candidates (nothing depends on them; not entry points or exported). Candidates, not verdicts.`,
+    matchOnDescription: true,
+  });
+  if (pick) {
+    await openNodeRef(s.workspaceRoot ?? "", pick.ref);
+    if (MapPanel.current) await map.reveal(pick.ref.slot);
+  }
 }
 
 export async function deactivate(): Promise<void> {

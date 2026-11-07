@@ -35,13 +35,33 @@
         "category": "Compass"
       },
       {
+        "command": "compass.searchMap",
+        "title": "Search Map",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.showCycles",
+        "title": "Show Cycles",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.showDeadCode",
+        "title": "Show Dead-Code Candidates",
+        "category": "Compass"
+      },
+      {
         "command": "compass.reindex",
         "title": "Reindex Workspace",
         "category": "Compass"
       },
       {
-        "command": "compass.searchMap",
-        "title": "Search Map",
+        "command": "compass.revealNode",
+        "title": "Reveal on Map",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.openNodeRef",
+        "title": "Open",
         "category": "Compass"
       }
     ],
@@ -59,9 +79,50 @@
           "type": "string",
           "default": "",
           "description": "Path to a compass-indexer binary. Leave empty to use the bundled one."
+        },
+        "compass.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show callers, blast radius and tests above functions and classes (files over 5,000 lines are skipped)."
         }
       }
-    }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "compass.revealNode",
+          "when": "false"
+        },
+        {
+          "command": "compass.openNodeRef",
+          "when": "false"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "compass",
+          "title": "Compass",
+          "icon": "media/compass.svg"
+        }
+      ]
+    },
+    "views": {
+      "compass": [
+        {
+          "id": "compass.context",
+          "name": "Context",
+          "contextualTitle": "Compass"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "compass.context",
+        "contents": "Put the cursor in a function or class to see what calls it, what it calls, and what breaks if it changes.\n[Open Map](command:compass.openMap)"
+      }
+    ]
   },
   "scripts": {
     "build": "node build.mjs",

@@ -1,5 +1,6 @@
 **
 !dist/**
+!media/**
 !bin/**
 !package.json
 !README.md

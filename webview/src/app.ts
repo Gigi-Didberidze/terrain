@@ -12,6 +12,7 @@ import type { Line, Renderer, TileDraw } from "./render/types.ts";
 import { buildLabels, buildOverlay, buildTileBatch, hereMarker, sortForPaint, WidthCache, type BaseStyle, type Outline } from "./scene.ts";
 import { decodeTile, KIND_DIR, KIND_FILE, TileCache, tileKey, type DecodedTile, type Item } from "./tiles.ts";
 import { Help } from "./ui/help.ts";
+import { LENSES, lensColor, type LensId } from "./lenses.ts";
 import { HoverCard } from "./ui/hover.ts";
 import { Legend } from "./ui/legend.ts";
 import { SearchBox } from "./ui/search.ts";
@@ -38,6 +39,9 @@ export class App {
   /** Bumped when fills change (theme, lens); tile batches rebuild lazily. */
   private styleVersion = 0;
   private frame = 0;
+  private lens: LensId = 1;
+  /** Shown in the legend for a moment when a lens is not available yet. */
+  private lensNotice = "";
   /** Dependency edges per node, fetched on demand for the selection, hover and pins. */
   private readonly edgeSets = new Map<number, EdgesResult>();
   private readonly edgePending = new Set<number>();
@@ -82,6 +86,8 @@ export class App {
     this.help = new Help(root);
     this.camera.bottomInset = 24;
     this.follow = this.host.state.follow !== false;
+    const savedLens = Number(this.host.state.lens);
+    if (savedLens === 1 || savedLens === 2) this.lens = savedLens;
 
     this.initRenderer();
     this.bindInput();
@@ -226,8 +232,8 @@ export class App {
       const more = set.total > set.edges.length ? ` (top ${set.edges.length} of ${set.total})` : "";
       edges = `purple uses ${out} · orange used by ${inn}${more} · dashed = name-matched`;
     }
-    const status = [this.progress, edges, this.follow ? "" : "follow off"].filter(Boolean).join(" · ");
-    this.legend.set("Area = lines of code", this.info?.files ?? 0, status);
+    const status = [this.lensNotice, this.progress, edges, this.follow ? "" : "follow off"].filter(Boolean).join(" · ");
+    this.legend.set(`${LENSES[this.lens].legend} · area = lines`, this.info?.files ?? 0, status);
   }
 
   // ---------------------------------------------------------------- tiles & scene
@@ -345,7 +351,9 @@ export class App {
   }
 
   private baseStyle(): BaseStyle {
-    return { theme: this.theme, lensColor: () => null };
+    const lens = this.lens;
+    const theme = this.theme;
+    return { theme, lensColor: (it) => lensColor(lens, it, theme) };
   }
 
   /** Finds a visible item by slot (finest tile first). */
@@ -549,6 +557,25 @@ export class App {
       };
       requestAnimationFrame(step);
     });
+  }
+
+  private setLens(id: LensId): void {
+    const def = LENSES[id];
+    if (def.pending) {
+      this.lensNotice = `${def.name} lens needs ${def.pending}`;
+      this.updateLegend();
+      window.setTimeout(() => {
+        this.lensNotice = "";
+        this.updateLegend();
+      }, 2500);
+      return;
+    }
+    if (id === this.lens) return;
+    this.lens = id;
+    this.styleVersion++;
+    this.host.setState({ lens: id });
+    this.updateLegend();
+    this.invalidate();
   }
 
   /** Test hook: number of drawable items currently in the scene. */
@@ -760,6 +787,14 @@ export class App {
         break;
       case "0":
         this.fit(true);
+        break;
+      case "1":
+      case "2":
+      case "3":
+      case "4":
+      case "5":
+      case "6":
+        this.setLens(Number(k) as LensId);
         break;
       case "f":
       case "F":

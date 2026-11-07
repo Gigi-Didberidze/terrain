@@ -27,6 +27,14 @@ for (const theme of themes.length ? themes : ["dark", "light", "hc"]) {
   }, null, { timeout: 120000, polling: 250 });
   await page.waitForTimeout(800);
   await page.screenshot({ path: join(out, `map-${theme}.png`) });
+  if (theme === "dark") {
+    // Load-bearing lens, then back to Structure.
+    await page.keyboard.press("2");
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: join(out, `map-${theme}-load.png`) });
+    await page.keyboard.press("1");
+    await page.waitForTimeout(600);
+  }
   if (theme === "dark" && select) {
     await page.evaluate(async (q) => {
       const r = await window.__compass.rpc("search", { query: q, limit: 1 });
