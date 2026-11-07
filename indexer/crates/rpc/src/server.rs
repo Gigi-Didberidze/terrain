@@ -126,7 +126,11 @@ impl Server {
                 }
             }
         };
-        let shared = Engine::new(&root, store, Options::default()).shared();
+        let options = Options {
+            cap_data_files: ip.cap_data_files.unwrap_or(true),
+            ..Options::default()
+        };
+        let shared = Engine::new(&root, store, options).shared();
         *self.state.write() = Some(shared.clone());
         let events = RpcEvents(self.outbox.clone());
         std::thread::Builder::new()
@@ -212,6 +216,20 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
                 return Err(RpcError::invalid_params("no such node"));
             }
             to_value(edges(&e, ep.slot, ep.limit.min(1000) as usize))
+        }
+        method::SETTINGS_UPDATE => {
+            let sp: p::SettingsParams = parse_params(params)?;
+            let mut e = s.write();
+            if e.options.cap_data_files != sp.cap_data_files {
+                e.options.cap_data_files = sp.cap_data_files;
+                // The layout reads the option; bumping the epochs makes every view refetch.
+                e.graph.layout_epoch += 1;
+                e.graph.epoch += 1;
+                let epoch = e.graph.epoch;
+                drop(e);
+                RpcEvents(outbox.clone()).changed(epoch, true);
+            }
+            Ok(Value::Null)
         }
         method::NODE_CONTEXT => {
             let cp: p::ContextParams = parse_params(params)?;
@@ -415,6 +433,17 @@ fn node_info(e: &Engine, slot: u32) -> Option<p::NodeInfo> {
             0
         },
         dead_candidate: e.analysis.is_dead(slot),
+        data: i.flags & flags::DATA != 0,
+        area_lines: if i.kind == compass_core::model::NodeKind::File {
+            compass_core::layout::area_lines(
+                e.graph.node(slot),
+                e.options
+                    .cap_data_files
+                    .then_some(compass_core::layout::DATA_CAP_LINES),
+            )
+        } else {
+            i.loc
+        },
         in_cycle: e.analysis.is_in_cycle(slot),
     })
 }

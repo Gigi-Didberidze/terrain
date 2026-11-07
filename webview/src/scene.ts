@@ -2,7 +2,7 @@
 import type { Camera } from "./camera.ts";
 import type { Label, Line, RectBatch } from "./render/types.ts";
 import type { RGBA, Theme } from "./render/theme.ts";
-import { FLAG_GENERATED, KIND_DIR, KIND_FILE, type DecodedTile, type Item } from "./tiles.ts";
+import { FLAG_DATA, FLAG_GENERATED, KIND_DIR, KIND_FILE, type DecodedTile, type Item } from "./tiles.ts";
 
 /** What decides fills: the theme and the active lens. Selection is drawn as an overlay. */
 export interface BaseStyle {
@@ -96,7 +96,8 @@ export function fillFor(it: Item, style: BaseStyle): RGBA {
   const t = style.theme;
   if (it.kind === KIND_DIR) return t.dirFill;
   if (style.muted?.(it)) return t.dirFill;
-  if (it.kind === KIND_FILE) return style.lensColor(it) ?? (it.flags & FLAG_GENERATED ? t.generatedFill : t.fileFill);
+  // Generated and data files are drawn quieter: they are part of the repo, not its code.
+  if (it.kind === KIND_FILE) return style.lensColor(it) ?? (it.flags & (FLAG_GENERATED | FLAG_DATA) ? t.generatedFill : t.fileFill);
   return style.lensColor(it) ?? t.symbolFill;
 }
 

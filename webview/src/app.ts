@@ -848,7 +848,8 @@ function phaseLabel(p: string): string {
 export function hoverLines(n: NodeInfo): { title: string; lines: string[] } {
   const loc = `${n.loc.toLocaleString("en-US")} lines`;
   const kind = n.kind === "file" ? (n.lang === "unknown" ? "file" : n.lang) : n.kind;
-  const lines = [`${kind} · ${loc}${n.generated ? " · generated" : ""}${n.test ? " · test" : ""}`];
+  const counted = n.data && n.areaLines < n.loc ? ` (counted as ${n.areaLines})` : "";
+  const lines = [`${n.data ? "data" : kind} · ${loc}${counted}${n.generated ? " · generated" : ""}${n.test ? " · test" : ""}`];
   if (n.kind === "dir") lines[0] = `directory · ${n.files.toLocaleString("en-US")} files · ${loc}`;
   lines.push(n.kind === "file" || n.kind === "dir" ? n.path || "/" : `${n.path}:${n.startLine}`);
   if (n.inCount || n.outCount) lines.push(`used by ${n.inCount.toLocaleString("en-US")} · uses ${n.outCount.toLocaleString("en-US")}`);

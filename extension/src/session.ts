@@ -52,6 +52,7 @@ export class Session implements vscode.Disposable {
       workspaceRoot: root,
       storePath: join(storeDir, "compass.db"),
       clientVersion: String(this.context.extension.packageJSON.version ?? "0.0.0"),
+      capDataFiles: vscode.workspace.getConfiguration("compass").get<boolean>("map.capDataFiles", true),
     });
     this.log.appendLine(`indexer ${this.serverInfo.serverVersion} ready (${binary})`);
     for (const l of this.startListeners) l(client);

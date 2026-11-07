@@ -164,7 +164,12 @@ pub fn scan_file(
     if is_test_path(&d.path) {
         fl |= flags::TEST;
     }
-    let content = (keep_content && fl & flags::GENERATED == 0 && lang.tier() <= 3).then_some(bytes);
+    if is_data_file(&d.path, loc) {
+        fl |= flags::DATA;
+    }
+    // Data files are not scanned for path mentions: slow on big files and meaningless.
+    let content = (keep_content && fl & (flags::GENERATED | flags::DATA) == 0 && lang.tier() <= 3)
+        .then_some(bytes);
     Some(Scanned {
         hash,
         loc,
@@ -246,6 +251,30 @@ pub fn is_generated(path: &str, bytes: &[u8]) -> bool {
     false
 }
 
+/// Lines above which text formats count as data rather than hand-written config.
+const DATA_LINES: u32 = 2000;
+
+/// Data rather than code: tables, logs, datasets, images-as-text. Area on the map is meant to be
+/// code, so these are capped (DECISIONS.md D34).
+pub fn is_data_file(path: &str, loc: u32) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
+    let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+    let always = [
+        "csv", "tsv", "psv", "jsonl", "ndjson", "parquet", "avro", "orc", "feather", "arrow",
+        "log", "dat", "geojson", "topojson", "svg", "pbf", "mtx", "arff", "xls", "xlsx", "ods",
+        "sav", "dta", "rds", "pkl", "npy", "npz", "h5", "hdf5", "db", "sqlite", "sqlite3",
+        "tfrecord", "vcf", "fasta", "fastq", "sam", "gpx", "kml", "srt", "vtt", "po", "pot", "mo",
+    ];
+    if always.contains(&ext) {
+        return true;
+    }
+    // Text formats that are config when small and data when large.
+    matches!(
+        ext,
+        "json" | "xml" | "txt" | "yaml" | "yml" | "sql" | "toml" | "ini" | "properties"
+    ) && loc > DATA_LINES
+}
+
 pub fn is_test_path(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
     let stem = name.split('.').next().unwrap_or(name);
@@ -284,6 +313,16 @@ mod tests {
         assert!(is_generated("app.min.js", b"x"));
         assert!(!is_generated("src/app.js", b"export const a = 1;\n"));
         assert!(is_generated("big.js", &[b'x'; 5000]));
+    }
+
+    #[test]
+    fn detects_data_files() {
+        assert!(is_data_file("data/prices.csv", 3));
+        assert!(is_data_file("logs/server.LOG", 10));
+        assert!(is_data_file("fixtures/dump.json", 50_000));
+        assert!(!is_data_file("package.json", 40));
+        assert!(!is_data_file("src/main.py", 50_000));
+        assert!(!is_data_file("Makefile", 10));
     }
 
     #[test]

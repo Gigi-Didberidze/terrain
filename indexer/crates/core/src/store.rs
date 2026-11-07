@@ -5,7 +5,7 @@ use crate::model::Lang;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const SNAPSHOT_KEY: &str = "files.snapshot";
 
 pub struct Store {

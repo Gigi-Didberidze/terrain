@@ -67,6 +67,11 @@ export function activate(context: vscode.ExtensionContext): CompassApi {
     }),
     vscode.commands.registerCommand("compass.showCycles", () => showCycles(s, map)),
     vscode.commands.registerCommand("compass.showDeadCode", () => showDeadCode(s, map)),
+    vscode.workspace.onDidChangeConfiguration(async (e) => {
+      if (!e.affectsConfiguration("compass.map.capDataFiles") || !s.serverInfo) return;
+      const client = await s.get();
+      await client.request("settings/update", { capDataFiles: vscode.workspace.getConfiguration("compass").get<boolean>("map.capDataFiles", true) });
+    }),
   );
   return { session: s, map, watcher, context: contextView, activationMs: performance.now() - t0 };
 }

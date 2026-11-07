@@ -134,3 +134,7 @@ Each entry: the decision, the alternatives, the reason.
 - Alternatives: the randomised refinement of the original algorithm.
 - Reason: The map must not change colours between two runs on the same code. Nodes are visited in path order and the refinement merges greedily (the θ → 0 limit), which keeps the well-connected guarantee and makes communities reproducible.
 
+## D34 — Data files count as at most 50 lines of area (setting: compass.map.capDataFiles)
+- Alternatives: area = line count for every file (the first version); hide data files entirely.
+- Reason: Raised by the user: in a real project two CSV files took the largest boxes on the map, only because of their row count. The map promises area = lines of code, and rows of data are not code. Data files (CSV/TSV/JSONL/Parquet, logs, datasets, SVG, translations such as .po, and JSON/XML/YAML/TXT/SQL over 2,000 lines) stay on the map, drawn in the quieter fill, but count as at most 50 lines. The hover card shows both numbers ("data · 48,210 lines (counted as 50)"). The setting turns the cap off for repositories where the data is the point. Data files are no longer scanned for path mentions.
+

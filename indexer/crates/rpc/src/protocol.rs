@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum IndexPhase {
@@ -79,6 +79,8 @@ pub struct InitializeParams {
     pub workspace_root: String,
     pub store_path: String,
     pub client_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cap_data_files: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -197,6 +199,8 @@ pub struct NodeInfo {
     pub complexity: u32,
     pub dead_candidate: bool,
     pub in_cycle: bool,
+    pub data: bool,
+    pub area_lines: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -405,6 +409,12 @@ pub struct SummaryResult {
     pub top_load_bearing: Vec<RankedRef>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsParams {
+    pub cap_data_files: bool,
+}
+
 pub mod method {
     pub const INITIALIZE: &str = "initialize";
     pub const PING: &str = "ping";
@@ -422,6 +432,7 @@ pub mod method {
     pub const ANALYSIS_CYCLES: &str = "analysis/cycles";
     pub const ANALYSIS_DEAD: &str = "analysis/dead";
     pub const ANALYSIS_SUMMARY: &str = "analysis/summary";
+    pub const SETTINGS_UPDATE: &str = "settings/update";
 }
 
 pub mod notification {

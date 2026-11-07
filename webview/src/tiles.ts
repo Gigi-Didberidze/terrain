@@ -8,6 +8,7 @@ export const KIND_DIR = 0;
 export const KIND_FILE = 1;
 export const FLAG_GENERATED = 1 << 2;
 export const FLAG_TEST = 1 << 3;
+export const FLAG_DATA = 1 << 7;
 
 /** One drawable node, in world coordinates (f64). */
 export interface Item {

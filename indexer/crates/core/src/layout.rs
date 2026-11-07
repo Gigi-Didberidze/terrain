@@ -9,6 +9,16 @@ use std::collections::HashMap;
 /// The world is the unit square; the map occupies the top WORLD_H of it (16:10).
 pub const WORLD_W: f64 = 1.0;
 pub const WORLD_H: f64 = 0.625;
+/// Lines a data file counts as on the map when capping is on (DECISIONS.md D34).
+pub const DATA_CAP_LINES: u32 = 50;
+
+/// Lines that decide a file's area: its LOC, or the cap for data files.
+pub fn area_lines(n: &Node, data_cap: Option<u32>) -> u32 {
+    match data_cap {
+        Some(cap) if n.flags & flags::DATA != 0 => n.loc.min(cap),
+        _ => n.loc,
+    }
+}
 /// Header band for labels, as a fraction of a container's height.
 pub const HEADER: f64 = 0.055;
 
@@ -62,10 +72,18 @@ pub struct Layout {
     pub epoch: u64,
     symbol_cache: HashMap<u32, Vec<(u32, Rect)>>,
     symbol_epochs: HashMap<u32, u64>,
+    /// Area cap for data files, if any.
+    pub data_cap: Option<u32>,
 }
 
 impl Layout {
+    /// Layout with data files capped at DATA_CAP_LINES (the default).
     pub fn compute(g: &Graph) -> Layout {
+        Self::compute_with(g, Some(DATA_CAP_LINES))
+    }
+
+    /// `data_cap`: area of data files (flags::DATA) in lines; None draws them at full size.
+    pub fn compute_with(g: &Graph, data_cap: Option<u32>) -> Layout {
         let n = g.nodes.len();
         let mut l = Layout {
             rects: vec![Rect::default(); n],
@@ -75,7 +93,9 @@ impl Layout {
             epoch: g.layout_epoch,
             symbol_cache: HashMap::new(),
             symbol_epochs: HashMap::new(),
+            data_cap: None,
         };
+        l.data_cap = data_cap;
         l.weigh(g, Graph::ROOT);
         let root = Rect::new(0.0, 0.0, WORLD_W, WORLD_H);
         l.rects[Graph::ROOT as usize] = root;
@@ -86,7 +106,7 @@ impl Layout {
     fn weigh(&mut self, g: &Graph, slot: u32) -> (f64, u32) {
         let node = g.node(slot);
         let (w, c) = match node.kind {
-            NodeKind::File => (node.loc.max(1) as f64, 1),
+            NodeKind::File => (area_lines(node, self.data_cap).max(1) as f64, 1),
             NodeKind::Dir => {
                 let mut w = 0.0;
                 let mut c = 0;
@@ -358,6 +378,20 @@ mod tests {
         g.upsert_file("deep/x/y/z.rs", 30, Lang::Rust, 0);
         g.upsert_file("README.md", 10, Lang::Markdown, 0);
         g
+    }
+
+    #[test]
+    fn data_files_are_capped_unless_configured() {
+        let mut g = Graph::new("repo");
+        g.upsert_file("src/app.py", 300, Lang::Python, 0);
+        g.upsert_file("data/prices.csv", 100_000, Lang::Unknown, flags::DATA);
+        let csv = g.slot_of_path("data/prices.csv").unwrap() as usize;
+        let app = g.slot_of_path("src/app.py").unwrap() as usize;
+        let capped = Layout::compute(&g);
+        assert_eq!(capped.weights[csv], DATA_CAP_LINES as f64);
+        assert!(capped.weights[app] > capped.weights[csv]);
+        let full = Layout::compute_with(&g, None);
+        assert_eq!(full.weights[csv], 100_000.0);
     }
 
     #[test]

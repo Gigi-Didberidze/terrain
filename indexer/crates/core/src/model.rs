@@ -257,6 +257,8 @@ pub mod flags {
     pub const COLLAPSED: u16 = 1 << 5;
     /// File over the size cap: node only, never parsed.
     pub const TOO_LARGE: u16 = 1 << 6;
+    /// Data rather than code (CSV, logs, large JSON, ...): area capped unless configured.
+    pub const DATA: u16 = 1 << 7;
 }
 
 pub const NONE: u32 = u32::MAX;

@@ -61,12 +61,16 @@ impl Events for NoEvents {
 #[derive(Clone, Debug)]
 pub struct Options {
     pub size_cap: u64,
+    /// Data files count as at most `layout::DATA_CAP_LINES` lines of area (setting
+    /// compass.map.capDataFiles).
+    pub cap_data_files: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Options {
             size_cap: DEFAULT_SIZE_CAP,
+            cap_data_files: true,
         }
     }
 }
@@ -293,11 +297,15 @@ impl Engine {
     /// Runs `f` with an up-to-date layout.
     pub fn with_layout<R>(&self, f: impl FnOnce(&mut Layout) -> R) -> R {
         let mut guard = self.layout.lock();
+        let cap = self
+            .options
+            .cap_data_files
+            .then_some(compass_core::layout::DATA_CAP_LINES);
         if guard
             .as_ref()
-            .is_none_or(|l| l.epoch != self.graph.layout_epoch)
+            .is_none_or(|l| l.epoch != self.graph.layout_epoch || l.data_cap != cap)
         {
-            *guard = Some(Layout::compute(&self.graph));
+            *guard = Some(Layout::compute_with(&self.graph, cap));
         }
         f(guard.as_mut().unwrap())
     }
@@ -1117,6 +1125,51 @@ mod tests {
             v
         };
         assert_eq!(snapshot(&e), snapshot(&cold));
+    }
+
+    #[test]
+    fn data_files_stay_small_unless_configured() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = dir.path();
+        std::fs::create_dir_all(r.join("data")).unwrap();
+        std::fs::write(
+            r.join("app.py"),
+            "def main():
+    return 1
+"
+            .repeat(50),
+        )
+        .unwrap();
+        std::fs::write(
+            r.join("data/prices.csv"),
+            "a,b,c
+"
+            .repeat(100_000),
+        )
+        .unwrap();
+        let e = Engine::new(r, None, Options::default()).shared();
+        run_index(&e, &NoEvents);
+        let area = |e: &Engine, p: &str| {
+            let slot = e.graph.slot_of_path(p).unwrap();
+            e.with_layout(|l| l.rect_of(&e.graph, slot))
+                .map(|r| r.w * r.h)
+                .unwrap()
+        };
+        {
+            let e = e.read();
+            let csv = e.graph.slot_of_path("data/prices.csv").unwrap();
+            assert!(e.graph.node(csv).flags & flags::DATA != 0);
+            assert!(
+                area(&e, "app.py") > area(&e, "data/prices.csv"),
+                "code outweighs a capped CSV"
+            );
+        }
+        e.write().options.cap_data_files = false;
+        let e = e.read();
+        assert!(
+            area(&e, "data/prices.csv") > area(&e, "app.py"),
+            "full size when capping is off"
+        );
     }
 
     #[test]

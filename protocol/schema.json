@@ -1,6 +1,6 @@
 {
   "$comment": "Single source of truth for the indexer <-> extension protocol. Run `node protocol/gen.mjs` after editing. Field names are camelCase; Rust fields are generated in snake_case with serde renames. Types: string, bool, u32, u64, f64, bytes (base64 string), Name (struct or enum), T[] (array), and a trailing ? on a field name marks it optional.",
-  "version": 4,
+  "version": 5,
   "enums": {
     "IndexPhase": [
       "discover",
@@ -41,7 +41,8 @@
     "InitializeParams": {
       "workspaceRoot": "string",
       "storePath": "string",
-      "clientVersion": "string"
+      "clientVersion": "string",
+      "capDataFiles?": "bool"
     },
     "InitializeResult": {
       "serverVersion": "string",
@@ -121,7 +122,9 @@
       "blastCount": "u32",
       "complexity": "u32",
       "deadCandidate": "bool",
-      "inCycle": "bool"
+      "inCycle": "bool",
+      "data": "bool",
+      "areaLines": "u32"
     },
     "LocateParams": {
       "path": "string",
@@ -252,6 +255,9 @@
       "dead": "u32",
       "analysisMs": "f64",
       "topLoadBearing": "RankedRef[]"
+    },
+    "SettingsParams": {
+      "capDataFiles": "bool"
     }
   },
   "requests": {
@@ -318,6 +324,10 @@
     "analysis/summary": {
       "params": "LimitParams",
       "result": "SummaryResult"
+    },
+    "settings/update": {
+      "params": "SettingsParams",
+      "result": null
     }
   },
   "notifications": {

@@ -84,6 +84,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show callers, blast radius and tests above functions and classes (files over 5,000 lines are skipped)."
+        },
+        "compass.map.capDataFiles": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Count data files (CSV, logs, datasets, large JSON/XML/YAML, translations, ...) as at most 50 lines of area, so the map's area keeps meaning *lines of code*. Turn off to draw them at their full size."
         }
       }
     },
