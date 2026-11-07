@@ -19,7 +19,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with: { workspaces: indexer }
-      - run: cargo build --release --manifest-path indexer/Cargo.toml -p compass-indexer
+      - run: cargo build --release --manifest-path indexer/Cargo.toml -p terrain-indexer
       - name: Clone corpus (pinned commits, shallow)
         run: node bench/clone.mjs linux vscode django
       - name: Run benchmarks (hard gate from M2)

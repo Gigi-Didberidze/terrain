@@ -70,8 +70,8 @@ jobs:
           echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
       - name: Build indexer (native and cross)
         run: |
-          cargo build --release --manifest-path indexer/Cargo.toml -p compass-indexer --target ${{ matrix.native.target }}
-          cargo build --release --manifest-path indexer/Cargo.toml -p compass-indexer --target ${{ matrix.cross.target }}
+          cargo build --release --manifest-path indexer/Cargo.toml -p terrain-indexer --target ${{ matrix.native.target }}
+          cargo build --release --manifest-path indexer/Cargo.toml -p terrain-indexer --target ${{ matrix.cross.target }}
       - name: Test indexer (native)
         run: cargo test --release --manifest-path indexer/Cargo.toml --workspace --target ${{ matrix.native.target }}
       - run: npm ci
@@ -81,8 +81,8 @@ jobs:
         run: |
           ext=""; [[ "${{ runner.os }}" == "Windows" ]] && ext=".exe"
           mkdir -p extension/bin
-          cp "indexer/target/${{ matrix.native.target }}/release/compass-indexer$ext" extension/bin/
-          chmod +x extension/bin/compass-indexer* || true
+          cp "indexer/target/${{ matrix.native.target }}/release/terrain-indexer$ext" extension/bin/
+          chmod +x extension/bin/terrain-indexer* || true
       - name: Integration test (opens the map in a real VS Code)
         shell: bash
         run: |
@@ -93,8 +93,8 @@ jobs:
         run: |
           ext=""; [[ "${{ runner.os }}" == "Windows" ]] && ext=".exe"
           npx vsce package --no-dependencies --target ${{ matrix.native.vsce }} -o compass-${{ matrix.native.vsce }}.vsix
-          rm -f bin/compass-indexer*
-          cp "../indexer/target/${{ matrix.cross.target }}/release/compass-indexer$ext" bin/
+          rm -f bin/terrain-indexer*
+          cp "../indexer/target/${{ matrix.cross.target }}/release/terrain-indexer$ext" bin/
           npx vsce package --no-dependencies --target ${{ matrix.cross.vsce }} -o compass-${{ matrix.cross.vsce }}.vsix
       - uses: actions/upload-artifact@v4
         with:
@@ -106,7 +106,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: indexer-linux-x64
-          path: indexer/target/x86_64-unknown-linux-gnu/release/compass-indexer
+          path: indexer/target/x86_64-unknown-linux-gnu/release/terrain-indexer
 
   bench:
     name: benchmarks (hard gate from M2)
@@ -118,8 +118,8 @@ jobs:
         with: { node-version: 24 }
       - uses: actions/download-artifact@v4
         with: { name: indexer-linux-x64, path: bin }
-      - run: chmod +x bin/compass-indexer
-      - run: node bench/run.mjs --hard --binary bin/compass-indexer
+      - run: chmod +x bin/terrain-indexer
+      - run: node bench/run.mjs --hard --binary bin/terrain-indexer
       - uses: actions/upload-artifact@v4
         with:
           name: bench-results
@@ -135,12 +135,12 @@ jobs:
         with: { node-version: 24, cache: npm }
       - uses: actions/download-artifact@v4
         with: { name: indexer-linux-x64, path: bin }
-      - run: chmod +x bin/compass-indexer
+      - run: chmod +x bin/terrain-indexer
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - name: Contrast, rendering and state screens in dark, light and high contrast
-        run: node webview/test-visual/themes.mjs . visual-out --binary bin/compass-indexer
+        run: node webview/test-visual/themes.mjs . visual-out --binary bin/terrain-indexer
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -1,7 +1,7 @@
 // Semantic enrichment: for the symbol the developer is looking at (sidebar, map selection,
 // Neighbourhood centre), ask VS Code's own call hierarchy (each language's server) for its
 // callers and callees, and send the answer to the indexer, which marks those calls confirmed
-// and drops the name-matched guesses the language server contradicts. Compass never starts a
+// and drops the name-matched guesses the language server contradicts. Terrain never starts a
 // language server of its own; without one, nothing happens.
 import * as vscode from "vscode";
 import type { NodeInfo, SourceLocation } from "../../protocol/generated/protocol.ts";
@@ -47,7 +47,7 @@ export class LspBridge implements vscode.Disposable {
 
   private async confirm(slot: number): Promise<void> {
     const root = this.session.workspaceRoot;
-    if (!root || !vscode.workspace.getConfiguration("compass").get<boolean>("semanticEnrichment.enabled", true)) return;
+    if (!root || !vscode.workspace.getConfiguration("terrain").get<boolean>("semanticEnrichment.enabled", true)) return;
     try {
       const client = await this.session.get();
       const n: NodeInfo = await client.request("node/info", { slot });

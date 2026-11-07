@@ -11,9 +11,9 @@ import { tmpdir } from "node:os";
 delete process.env.ELECTRON_RUN_AS_NODE;
 
 const here = dirname(fileURLToPath(import.meta.url));
-const workspace = mkdtempSync(resolve(tmpdir(), "compass-it-"));
+const workspace = mkdtempSync(resolve(tmpdir(), "terrain-it-"));
 writeFileSync(resolve(workspace, "hello.ts"), "export function hello() { return 1; }\n");
-// main() calls Set.has(); Compass's name matching also links it to Bag.has() in the same
+// main() calls Set.has(); Terrain's name matching also links it to Bag.has() in the same
 // folder, which the TypeScript language server must contradict (M5 semantic enrichment).
 writeFileSync(resolve(workspace, "shapes.ts"), "export class Bag {\n  has(x: number) {\n    return x > 0;\n  }\n}\n");
 writeFileSync(

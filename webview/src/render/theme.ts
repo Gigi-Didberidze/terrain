@@ -1,4 +1,4 @@
-// Reads colours from VS Code theme tokens. Compass defines no colours of its own: every fill,
+// Reads colours from VS Code theme tokens. Terrain defines no colours of its own: every fill,
 // stroke and label comes from the active theme, so it looks native in light, dark and high contrast.
 
 export type RGBA = [number, number, number, number];

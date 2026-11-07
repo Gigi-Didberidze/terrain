@@ -1,4 +1,4 @@
-/* All colour comes from VS Code theme tokens so Compass looks native in every theme.
+/* All colour comes from VS Code theme tokens so Terrain looks native in every theme.
    Sizes 11, 12 and 13px only. 1px strokes, 2px radius at most, no shadows or gradients. */
 :root {
   --c-bg: var(--vscode-editor-background);

@@ -66,7 +66,7 @@ export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Dispos
 
   constructor(session: Session) {
     this.session = session;
-    this.view = vscode.window.createTreeView("compass.context", { treeDataProvider: this, showCollapseAll: true });
+    this.view = vscode.window.createTreeView("terrain.context", { treeDataProvider: this, showCollapseAll: true });
     this.disposables.push(
       this.view,
       this.changed,
@@ -160,7 +160,7 @@ export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Dispos
       const facts: Item[] = [];
       facts.push(new Fact("Load-bearing", `${pct(n.load)} · used by ${n.inCount} · uses ${n.outCount}`));
       if (n.complexity) facts.push(new Fact("Complexity", `${n.complexity} (cyclomatic)`));
-      if (n.inCycle) facts.push(new Fact("Import cycle", "this file is part of one (Compass: Show Cycles)"));
+      if (n.inCycle) facts.push(new Fact("Import cycle", "this file is part of one (Terrain: Show Cycles)"));
       if (n.deadCandidate) facts.push(new Fact("Dead-code candidate", "nothing depends on it; not an entry point or exported"));
       const h = this.hist;
       if (h && h.commits) {
@@ -212,9 +212,9 @@ export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Dispos
     const t = new vscode.TreeItem(r.name, vscode.TreeItemCollapsibleState.None);
     t.description = item.note ?? (r.kind === "file" ? r.path : `${r.path}:${r.line}`);
     t.tooltip = `${r.kind} ${r.name}\n${r.path}:${r.line}${item.note ? `\nchanges with it: ${item.note}` : ""}`;
-    t.contextValue = "compassNode";
+    t.contextValue = "terrainNode";
     t.accessibilityInformation = { label: `${r.kind} ${r.name} in ${r.path} line ${r.line}` };
-    t.command = { command: "compass.openNodeRef", title: "Open", arguments: [r] };
+    t.command = { command: "terrain.openNodeRef", title: "Open", arguments: [r] };
     return t;
   }
 

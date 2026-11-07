@@ -1,6 +1,6 @@
 // Import-resolution accuracy for TypeScript/JavaScript against TypeScript's own module
 // resolution (the resolver tsserver uses), with each file's nearest tsconfig.
-// Usage: compass-indexer imports <root> --lang typescript > imports.jsonl
+// Usage: terrain-indexer imports <root> --lang typescript > imports.jsonl
 //        node bench/accuracy/ts.mjs <root> imports.jsonl [--sample 1000]
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";

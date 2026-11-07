@@ -3,11 +3,11 @@ const vscode = require("vscode");
 const assert = require("node:assert/strict");
 
 async function run() {
-  const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "compass-map");
+  const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "terrain");
   assert.ok(ext, "extension is installed");
   const api = await ext.activate();
   const t0 = Date.now();
-  await vscode.commands.executeCommand("compass.openMap");
+  await vscode.commands.executeCommand("terrain.openMap");
   const client = await api.session.get();
   const pong = await client.request("ping", null);
   assert.equal(typeof pong.uptimeMs, "number");
@@ -24,7 +24,7 @@ async function run() {
   const tiles = await client.request("map/tiles", { tiles: [{ z: 0, x: 0, y: 0 }] });
   assert.ok(Buffer.from(tiles.tiles[0].data, "base64").subarray(0, 4).toString() === "CMPT");
   assert.ok(api.activationMs < 20, `activation took ${api.activationMs} ms`);
-  console.log(`[compass-it] map opened and indexer answered in ${Date.now() - t0} ms`);
+  console.log(`[terrain-it] activated in ${api.activationMs.toFixed(1)} ms; map opened and indexer answered in ${Date.now() - t0} ms`);
 
   // M3: CodeLens above hello() reports its callers in main.ts and extra.ts.
   const folder = vscode.workspace.workspaceFolders[0].uri;
@@ -42,7 +42,7 @@ async function run() {
   const loc = await client.request("node/locate", { path: "main.ts", line: 4 });
   const ctx = await client.request("node/context", { slot: loc.node.slot, limit: 10 });
   assert.ok(ctx.callees.some((c) => c.name === "hello"), `callees: ${JSON.stringify(ctx.callees)}`);
-  console.log(`[compass-it] CodeLens: ${titles.join(" | ")}`);
+  console.log(`[terrain-it] CodeLens: ${titles.join(" | ")}`);
 
   // M5: Neighbourhood of main(): hello() and the name-matched Bag.has() on the right.
   const mainSlot = loc.node.slot;
@@ -66,7 +66,7 @@ async function run() {
   assert.deepEqual(names(nb), ["hello"], `after enrichment: ${JSON.stringify(names(nb))}`);
   const toHello = nb.edges.find((e) => e.from === mainSlot);
   assert.equal(toHello.confidence, "semantic", "the confirmed call draws solid");
-  console.log(`[compass-it] language server confirmed ${api.lsp.stats.confirmed}, rejected ${api.lsp.stats.rejected}`);
+  console.log(`[terrain-it] language server confirmed ${api.lsp.stats.confirmed}, rejected ${api.lsp.stats.rejected}`);
 
   // M5: Path from extra.ts's file to hello.ts.
   const extra = await client.request("node/locate", { path: "extra.ts" });
@@ -88,13 +88,13 @@ async function run() {
     api.review.refresh(0);
     for (let i = 0; i < 100 && api.review.last?.changedTotal !== 2; i++) await new Promise((r) => setTimeout(r, 100));
     assert.equal(api.review.last?.changedTotal, 2, "status bar shows the branch's changes");
-    console.log(`[compass-it] review: ${changed.join(", ")}; blast ${review.blastTotal}`);
+    console.log(`[terrain-it] review: ${changed.join(", ")}; blast ${review.blastTotal}`);
   }
 
   // M5: commands run without error (Neighbourhood at the cursor, Change lens, SVG export).
   await vscode.window.showTextDocument(mainUri, { selection: new vscode.Range(3, 2, 3, 2) });
-  await vscode.commands.executeCommand("compass.showNeighbourhood");
-  await vscode.commands.executeCommand("compass.blastRadius");
+  await vscode.commands.executeCommand("terrain.showNeighbourhood");
+  await vscode.commands.executeCommand("terrain.blastRadius");
 }
 
 module.exports = { run };

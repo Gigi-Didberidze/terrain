@@ -105,8 +105,8 @@ try {
           text: "The indexer keeps stopping",
           detail: "It exited with code 3 twice within a minute.",
           actions: [
-            { label: "Restart Indexer", command: "compass.restartIndexer" },
-            { label: "Show Log", command: "compass.showLog" },
+            { label: "Restart Indexer", command: "terrain.restartIndexer" },
+            { label: "Show Log", command: "terrain.showLog" },
           ],
         },
         "*",

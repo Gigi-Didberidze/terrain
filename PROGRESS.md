@@ -1,5 +1,7 @@
 # Progress
 
+The product is named **Terrain** (D50); earlier entries say Compass.
+
 **Current milestone:** M6 — Polish and ship: done except publishing, which waits for the owner (D49)
 
 ## M0 — Skeleton: done

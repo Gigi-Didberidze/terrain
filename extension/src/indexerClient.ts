@@ -1,4 +1,4 @@
-// Spawns the compass-indexer binary and speaks JSON-RPC 2.0 to it over stdio (LSP framing).
+// Spawns the terrain-indexer binary and speaks JSON-RPC 2.0 to it over stdio (LSP framing).
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Notifications, NotificationMethod, Requests, RequestMethod } from "../../protocol/generated/protocol.ts";
 import { FrameDecoder, encodeFrame } from "./framing.ts";

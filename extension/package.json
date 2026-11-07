@@ -1,6 +1,6 @@
 {
-  "name": "compass-map",
-  "displayName": "Compass â€” Code Map",
+  "name": "terrain",
+  "displayName": "Terrain — Code Map",
   "description": "A fast, deterministic map of your codebase: where you are, what holds it up, and what really belongs together.",
   "version": "0.1.0",
   "publisher": "gigi-didberidze",
@@ -30,132 +30,132 @@
   "contributes": {
     "commands": [
       {
-        "command": "compass.openMap",
+        "command": "terrain.openMap",
         "title": "Open Map",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.searchMap",
+        "command": "terrain.searchMap",
         "title": "Search Map",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.showNeighbourhood",
+        "command": "terrain.showNeighbourhood",
         "title": "Show Neighbourhood of Symbol",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.findPath",
+        "command": "terrain.findPath",
         "title": "Find Path Between…",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.review",
+        "command": "terrain.review",
         "title": "Review Changes",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.blastRadius",
+        "command": "terrain.blastRadius",
         "title": "Blast Radius of Current Change",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.exportSvg",
+        "command": "terrain.exportSvg",
         "title": "Export View as SVG",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.showCycles",
+        "command": "terrain.showCycles",
         "title": "Show Cycles",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.showDeadCode",
+        "command": "terrain.showDeadCode",
         "title": "Show Dead-Code Candidates",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.showMisplaced",
+        "command": "terrain.showMisplaced",
         "title": "Show Misplaced Files",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.showHiddenDependencies",
+        "command": "terrain.showHiddenDependencies",
         "title": "Show Hidden Dependencies",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.reindex",
+        "command": "terrain.reindex",
         "title": "Reindex Workspace",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.revealNode",
+        "command": "terrain.revealNode",
         "title": "Reveal on Map",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.openNodeRef",
+        "command": "terrain.openNodeRef",
         "title": "Open",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.restartIndexer",
+        "command": "terrain.restartIndexer",
         "title": "Restart Indexer",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.showLog",
+        "command": "terrain.showLog",
         "title": "Show Log",
-        "category": "Compass"
+        "category": "Terrain"
       },
       {
-        "command": "compass.setLens",
+        "command": "terrain.setLens",
         "title": "Set Map Lens",
-        "category": "Compass"
+        "category": "Terrain"
       }
     ],
     "keybindings": [
       {
-        "command": "compass.openMap",
+        "command": "terrain.openMap",
         "key": "ctrl+alt+m",
         "mac": "cmd+alt+m"
       },
       {
-        "command": "compass.showNeighbourhood",
+        "command": "terrain.showNeighbourhood",
         "key": "ctrl+alt+n",
         "mac": "cmd+alt+n"
       },
       {
-        "command": "compass.review",
+        "command": "terrain.review",
         "key": "ctrl+alt+r",
         "mac": "cmd+alt+r"
       }
     ],
     "configuration": {
-      "title": "Compass",
+      "title": "Terrain",
       "properties": {
-        "compass.indexerPath": {
+        "terrain.indexerPath": {
           "type": "string",
           "default": "",
-          "description": "Path to a compass-indexer binary. Leave empty to use the bundled one."
+          "description": "Path to a terrain-indexer binary. Leave empty to use the bundled one."
         },
-        "compass.codeLens.enabled": {
+        "terrain.codeLens.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Show callers, blast radius and tests above functions and classes (files over 5,000 lines are skipped)."
         },
-        "compass.map.capDataFiles": {
+        "terrain.map.capDataFiles": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Count data files (CSV, logs, datasets, large JSON/XML/YAML, translations, ...) as at most 50 lines of area, so the map's area keeps meaning *lines of code*. Turn off to draw them at their full size."
         },
-        "compass.semanticEnrichment.enabled": {
+        "terrain.semanticEnrichment.enabled": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Confirm call edges of the symbol you are looking at with VS Code's call hierarchy (the language's own server). Confirmed calls draw solid; name-matched guesses the language server contradicts are removed."
         },
-        "compass.exclude": {
+        "terrain.exclude": {
           "type": "array",
           "items": {
             "type": "string"
@@ -163,12 +163,12 @@
           "default": [],
           "markdownDescription": "Extra folders or files to leave off the map, as gitignore-style patterns relative to the workspace (for example `vendor/` or `**/*.min.js`). `.gitignore`, `.ignore` and `node_modules` are always honoured. Changing this restarts the indexer."
         },
-        "compass.history.enabled": {
+        "terrain.history.enabled": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Read git history for churn, ownership and co-change coupling (lenses 3 to 5, hidden dependencies). Everything stays on this machine. Review mode (lens 6) only needs the current branch and works either way."
         },
-        "compass.map.follow": {
+        "terrain.map.follow": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Follow the active editor on the map by default: the map shows where you are, and the Neighbourhood re-centres on the symbol under the cursor. `F` toggles it in the map."
@@ -178,22 +178,22 @@
     "menus": {
       "commandPalette": [
         {
-          "command": "compass.revealNode",
+          "command": "terrain.revealNode",
           "when": "false"
         },
         {
-          "command": "compass.openNodeRef",
+          "command": "terrain.openNodeRef",
           "when": "false"
         },
         {
-          "command": "compass.setLens",
+          "command": "terrain.setLens",
           "when": "false"
         }
       ],
       "view/item/context": [
         {
-          "command": "compass.showNeighbourhood",
-          "when": "view == compass.context && viewItem == compassNode",
+          "command": "terrain.showNeighbourhood",
+          "when": "view == terrain.context && viewItem == terrainNode",
           "group": "navigation"
         }
       ]
@@ -201,37 +201,37 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "compass",
-          "title": "Compass",
-          "icon": "media/compass.svg"
+          "id": "terrain",
+          "title": "Terrain",
+          "icon": "media/terrain.svg"
         }
       ]
     },
     "views": {
-      "compass": [
+      "terrain": [
         {
-          "id": "compass.context",
+          "id": "terrain.context",
           "name": "Context",
-          "contextualTitle": "Compass"
+          "contextualTitle": "Terrain"
         }
       ]
     },
     "viewsWelcome": [
       {
-        "view": "compass.context",
-        "contents": "Put the cursor in a function or class to see what calls it, what it calls, and what breaks if it changes.\n[Open Map](command:compass.openMap)"
+        "view": "terrain.context",
+        "contents": "Put the cursor in a function or class to see what calls it, what it calls, and what breaks if it changes.\n[Open Map](command:terrain.openMap)"
       }
     ],
     "walkthroughs": [
       {
         "id": "start",
-        "title": "Get started with Compass",
+        "title": "Get started with Terrain",
         "description": "A map of this codebase: what is where, what holds it up, and what changes together.",
         "steps": [
           {
             "id": "map",
             "title": "Open the map",
-            "description": "Every folder and file of the workspace, sized by lines of code. Position only changes when files are added, moved or deleted, so you learn where things are.\nScroll to zoom into files and their functions, click to select, double-click to open.\n[Open Map](command:compass.openMap)",
+            "description": "Every folder and file of the workspace, sized by lines of code. Position only changes when files are added, moved or deleted, so you learn where things are.\nScroll to zoom into files and their functions, click to select, double-click to open.\n[Open Map](command:terrain.openMap)",
             "media": {
               "image": {
                 "dark": "media/walkthrough/map-dark.png",
@@ -239,16 +239,16 @@
                 "hc": "media/walkthrough/map-dark.png",
                 "hcLight": "media/walkthrough/map-light.png"
               },
-              "altText": "The Compass map: nested rectangles for folders and files, coloured by module."
+              "altText": "The Terrain map: nested rectangles for folders and files, coloured by module."
             },
             "completionEvents": [
-              "onCommand:compass.openMap"
+              "onCommand:terrain.openMap"
             ]
           },
           {
             "id": "lenses",
             "title": "Colour it by what matters",
-            "description": "Number keys switch lenses, one measure at a time: 1 modules, 2 load-bearing (what most code rests on), 3 churn, 4 co-change, 5 ownership, 6 what this branch changed.\n[Show Load-bearing](command:compass.setLens?%5B2%5D)\n[Show This Branch's Changes](command:compass.setLens?%5B6%5D)",
+            "description": "Number keys switch lenses, one measure at a time: 1 modules, 2 load-bearing (what most code rests on), 3 churn, 4 co-change, 5 ownership, 6 what this branch changed.\n[Show Load-bearing](command:terrain.setLens?%5B2%5D)\n[Show This Branch's Changes](command:terrain.setLens?%5B6%5D)",
             "media": {
               "image": {
                 "dark": "media/walkthrough/load-dark.png",
@@ -259,13 +259,13 @@
               "altText": "The map under the Load-bearing lens: the files most code depends on are drawn strongest."
             },
             "completionEvents": [
-              "onCommand:compass.setLens"
+              "onCommand:terrain.setLens"
             ]
           },
           {
             "id": "neighbourhood",
             "title": "See what holds a function up",
-            "description": "Put the cursor in a function or class and open its Neighbourhood: what uses it on the left, what it uses on the right, two steps each. The CodeLens above functions opens it too.\n[Show Neighbourhood](command:compass.showNeighbourhood)",
+            "description": "Put the cursor in a function or class and open its Neighbourhood: what uses it on the left, what it uses on the right, two steps each. The CodeLens above functions opens it too.\n[Show Neighbourhood](command:terrain.showNeighbourhood)",
             "media": {
               "image": {
                 "dark": "media/walkthrough/neighbourhood-dark.png",
@@ -276,7 +276,7 @@
               "altText": "The Neighbourhood view: callers in columns on the left, callees on the right."
             },
             "completionEvents": [
-              "onCommand:compass.showNeighbourhood"
+              "onCommand:terrain.showNeighbourhood"
             ]
           }
         ]

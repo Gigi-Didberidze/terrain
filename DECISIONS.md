@@ -198,3 +198,7 @@ Each entry: the decision, the alternatives, the reason.
 ## D49 — Product name: decision left to the owner before publishing
 - Alternatives: keep "Compass — Code Map".
 - Reason: The extension ID (gigi-didberidze.compass-map) is unique, but the Marketplace already lists "Compass", "Code Compass", "Code-Compass" (Nokia Bell Labs) and "Compass Codegraph", a code-graph tool. Unused on both the Marketplace and Open VSX (checked 2026-11-07): "Terrain", "Lay of the Land". Publishing, the publisher account and the name are the owner's call. The Marketplace README loads its images from the GitHub repository, which is private: they will not show until the repository is public or the images are hosted elsewhere.
+
+## D50 — The product is named Terrain
+- Alternatives: Compass (crowded, D49), Lay of the Land.
+- Reason: Chosen by the owner. "Terrain" was unused on the Marketplace and Open VSX. Everything a user sees or configures was renamed before publishing, while it is free: extension ID gigi-didberidze.terrain, display name "Terrain — Code Map", commands and settings terrain.*, views, output channel, status bar, messages, walkthrough, README, and the bundled binary (terrain-indexer). Internal names (Rust crates compass-*, the repository and folder name) stay until the owner decides about the repository. A new extension ID means a new workspace storage folder: the first open after the change indexes once.

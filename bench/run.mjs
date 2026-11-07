@@ -19,7 +19,7 @@ const opt = (n) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 
-const exe = process.platform === "win32" ? "compass-indexer.exe" : "compass-indexer";
+const exe = process.platform === "win32" ? "terrain-indexer.exe" : "terrain-indexer";
 const binary = opt("binary") ?? join(here, "..", "indexer", "target", "release", exe);
 if (!existsSync(binary)) {
   console.error(`indexer binary not found at ${binary}; run: cargo build --release --manifest-path indexer/Cargo.toml`);

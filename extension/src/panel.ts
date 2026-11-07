@@ -1,4 +1,4 @@
-// The Compass map panel: a single webview that renders the map. All data comes from the
+// The Terrain map panel: a single webview that renders the map. All data comes from the
 // indexer via the extension host; the webview never talks to the indexer directly.
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
@@ -17,7 +17,7 @@ export class MapPanel implements vscode.Disposable {
       MapPanel.current.panel.reveal();
       return MapPanel.current;
     }
-    const panel = vscode.window.createWebviewPanel("compass.map", "Compass", vscode.ViewColumn.Active, {
+    const panel = vscode.window.createWebviewPanel("terrain.map", "Terrain", vscode.ViewColumn.Active, {
       enableScripts: true,
       retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(extensionUri, "dist", "webview")],
@@ -75,10 +75,10 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="${style}">
-<title>Compass</title>
+<title>Terrain</title>
 </head>
 <body>
-<div id="app" role="application" aria-label="Compass code map"></div>
+<div id="app" role="application" aria-label="Terrain code map"></div>
 <script type="module" nonce="${nonce}" src="${script}"></script>
 </body>
 </html>`;

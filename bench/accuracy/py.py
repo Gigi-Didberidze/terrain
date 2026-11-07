@@ -2,7 +2,7 @@
 
 Walks packages with importlib.machinery.PathFinder exactly as the import system does, without
 executing any module code. Usage:
-    compass-indexer imports <root> --lang python > imports.jsonl
+    terrain-indexer imports <root> --lang python > imports.jsonl
     python -I bench/accuracy/py.py <root> imports.jsonl [--sample 1000]
 """
 import json

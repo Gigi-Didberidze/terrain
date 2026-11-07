@@ -6,7 +6,7 @@ import { toRelative } from "../paths.ts";
 
 const MAX_LINES = 5000;
 
-export class CompassCodeLens implements vscode.CodeLensProvider, vscode.Disposable {
+export class TerrainCodeLens implements vscode.CodeLensProvider, vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this.changed.event;
   private readonly session: Session;
@@ -23,7 +23,7 @@ export class CompassCodeLens implements vscode.CodeLensProvider, vscode.Disposab
   }
 
   async provideCodeLenses(doc: vscode.TextDocument, token: vscode.CancellationToken): Promise<vscode.CodeLens[]> {
-    if (!vscode.workspace.getConfiguration("compass").get<boolean>("codeLens.enabled", true)) return [];
+    if (!vscode.workspace.getConfiguration("terrain").get<boolean>("codeLens.enabled", true)) return [];
     if (doc.lineCount > MAX_LINES || doc.uri.scheme !== "file") return [];
     const root = this.session.workspaceRoot;
     const rel = root ? toRelative(root, doc.uri.fsPath) : undefined;
@@ -38,8 +38,8 @@ export class CompassCodeLens implements vscode.CodeLensProvider, vscode.Disposab
         const line = Math.max(0, Math.min(doc.lineCount - 1, l.line - 1));
         return new vscode.CodeLens(new vscode.Range(line, 0, line, 0), {
           title: parts.join(" · "),
-          tooltip: "Compass: show what uses this and what it uses (Neighbourhood)",
-          command: "compass.showNeighbourhood",
+          tooltip: "Terrain: show what uses this and what it uses (Neighbourhood)",
+          command: "terrain.showNeighbourhood",
           arguments: [l.slot],
         });
       });

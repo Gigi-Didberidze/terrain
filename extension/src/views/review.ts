@@ -1,5 +1,5 @@
-// Review mode: the status bar shows "Compass: 14 changed · blast 212" when the branch differs
-// from its base. Clicking it (or Compass: Review Changes, Ctrl/Cmd+Alt+R) opens the map with
+// Review mode: the status bar shows "Terrain: 14 changed · blast 212" when the branch differs
+// from its base. Clicking it (or Terrain: Review Changes, Ctrl/Cmd+Alt+R) opens the map with
 // the Change lens and lists the changed files by load-bearing score: what to read first.
 import * as vscode from "vscode";
 import type { ReviewItem, ReviewResult } from "../../../protocol/generated/protocol.ts";
@@ -13,9 +13,9 @@ export class ReviewStatus implements vscode.Disposable {
 
   constructor(session: Session) {
     this.session = session;
-    this.item = vscode.window.createStatusBarItem("compass.review", vscode.StatusBarAlignment.Left, 50);
-    this.item.name = "Compass review";
-    this.item.command = "compass.review";
+    this.item = vscode.window.createStatusBarItem("terrain.review", vscode.StatusBarAlignment.Left, 50);
+    this.item.name = "Terrain review";
+    this.item.command = "terrain.review";
   }
 
   /** Re-reads the change summary, debounced (the graph changes in bursts while editing). */
@@ -36,9 +36,9 @@ export class ReviewStatus implements vscode.Disposable {
       }
       const n = r.changedTotal.toLocaleString("en-US");
       const b = r.blastTotal.toLocaleString("en-US");
-      this.item.text = `$(git-compare) Compass: ${n} changed · blast ${b}`;
+      this.item.text = `$(git-compare) Terrain: ${n} changed · blast ${b}`;
       this.item.tooltip = `${n} files changed${r.baseName ? ` since this branch left ${r.baseName}` : ""} (committed and uncommitted); ${b} files depend on them.\nClick for the files to review first.`;
-      this.item.accessibilityInformation = { label: `Compass: ${n} files changed, ${b} files in the blast radius. Activate to review.` };
+      this.item.accessibilityInformation = { label: `Terrain: ${n} files changed, ${b} files in the blast radius. Activate to review.` };
       this.item.show();
     } catch {
       this.item.hide();
@@ -63,11 +63,11 @@ export async function pickReviewFile(session: Session): Promise<ReviewItem | und
   await client.request("review/refresh", null);
   const r = await client.request("review/summary", { limit: 500 });
   if (!r.available) {
-    void vscode.window.showInformationMessage("Compass: no git repository with a base branch (main or master) found.");
+    void vscode.window.showInformationMessage("Terrain: no git repository with a base branch (main or master) found.");
     return undefined;
   }
   if (r.changedTotal === 0) {
-    void vscode.window.showInformationMessage(`Compass: nothing changed${r.baseName ? ` since ${r.baseName}` : ""}.`);
+    void vscode.window.showInformationMessage(`Terrain: nothing changed${r.baseName ? ` since ${r.baseName}` : ""}.`);
     return undefined;
   }
   type Pick = vscode.QuickPickItem & { item: ReviewItem };

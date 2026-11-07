@@ -41,7 +41,7 @@ export class MapController implements vscode.Disposable {
   async open(): Promise<MapPanel> {
     const panel = MapPanel.show(this.context.extensionUri);
     panel.onMessage = (m) => void this.onView(m);
-    const followDefault = vscode.workspace.getConfiguration("compass").get<boolean>("map.follow", true);
+    const followDefault = vscode.workspace.getConfiguration("terrain").get<boolean>("map.follow", true);
     panel.post({ type: "config", followDefault });
     await this.connect(panel);
     return panel;
@@ -54,7 +54,7 @@ export class MapController implements vscode.Disposable {
         type: "status",
         state: "empty",
         text: "Open a folder to see its map",
-        detail: "Compass maps the folder you have open: its files, what they depend on, and how they change.",
+        detail: "Terrain maps the folder you have open: its files, what they depend on, and how they change.",
         actions: [{ label: "Open Folder…", command: "workbench.action.files.openFolder" }],
       });
       return;
@@ -72,15 +72,15 @@ export class MapController implements vscode.Disposable {
       panel.post({
         type: "status",
         state: "error",
-        text: missing ? "Compass could not find its indexer" : "The indexer did not start",
+        text: missing ? "Terrain could not find its indexer" : "The indexer did not start",
         detail: missing
-          ? "The compass-indexer program is missing from this installation. Reinstalling the extension restores it; the log lists where Compass looked."
+          ? "The terrain-indexer program is missing from this installation. Reinstalling the extension restores it; the log lists where Terrain looked."
           : `${msg.split("\n")[0]}. The log has the details.`,
         actions: missing
-          ? [{ label: "Show Log", command: "compass.showLog" }]
+          ? [{ label: "Show Log", command: "terrain.showLog" }]
           : [
-              { label: "Restart Indexer", command: "compass.restartIndexer" },
-              { label: "Show Log", command: "compass.showLog" },
+              { label: "Restart Indexer", command: "terrain.restartIndexer" },
+              { label: "Show Log", command: "terrain.showLog" },
             ],
       });
     }
@@ -103,8 +103,8 @@ export class MapController implements vscode.Disposable {
       text: "The indexer keeps stopping",
       detail: `It exited with code ${code ?? "unknown"} twice within a minute. The log usually says why; restarting tries once more.`,
       actions: [
-        { label: "Restart Indexer", command: "compass.restartIndexer" },
-        { label: "Show Log", command: "compass.showLog" },
+        { label: "Restart Indexer", command: "terrain.restartIndexer" },
+        { label: "Show Log", command: "terrain.showLog" },
       ],
     });
   }
@@ -171,13 +171,13 @@ export class MapController implements vscode.Disposable {
   private async saveSvg(svg: string): Promise<void> {
     const root = this.session.workspaceRoot;
     const target = await vscode.window.showSaveDialog({
-      defaultUri: root ? vscode.Uri.joinPath(vscode.Uri.file(root), "compass-view.svg") : undefined,
+      defaultUri: root ? vscode.Uri.joinPath(vscode.Uri.file(root), "terrain-view.svg") : undefined,
       filters: { SVG: ["svg"] },
       saveLabel: "Export",
     });
     if (!target) return;
     await vscode.workspace.fs.writeFile(target, Buffer.from(svg, "utf8"));
-    void vscode.window.showInformationMessage(`Compass: view exported to ${vscode.workspace.asRelativePath(target)}`);
+    void vscode.window.showInformationMessage(`Terrain: view exported to ${vscode.workspace.asRelativePath(target)}`);
   }
 
   async openNode(slot: number): Promise<void> {

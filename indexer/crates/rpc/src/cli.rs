@@ -1,4 +1,4 @@
-//! Command-line mode for profiling: `compass-indexer index <root> [--store <db>]`.
+//! Command-line mode for profiling: `terrain-indexer index <root> [--store <db>]`.
 //! Prints timings and graph counts as JSON. Run twice with the same store to measure a warm start.
 
 use compass_core::model::{EdgeKind, NodeKind};
@@ -6,11 +6,11 @@ use compass_core::store::Store;
 use compass_engine::{run_index, Engine, NoEvents, Options};
 use std::path::PathBuf;
 
-/// `compass-indexer imports <root> [--lang python|typescript|...]`: one JSON line per import
+/// `terrain-indexer imports <root> [--lang python|typescript|...]`: one JSON line per import
 /// with the files Compass resolves it to, for comparison against language tooling.
 pub fn imports(args: &[String]) {
     let Some(root) = args.first() else {
-        eprintln!("usage: compass-indexer imports <root> [--lang <lang>]");
+        eprintln!("usage: terrain-indexer imports <root> [--lang <lang>]");
         std::process::exit(2);
     };
     let only = args
@@ -40,7 +40,7 @@ pub fn imports(args: &[String]) {
 
 pub fn index(args: &[String]) {
     let Some(root) = args.first() else {
-        eprintln!("usage: compass-indexer index <root> [--store <db>]");
+        eprintln!("usage: terrain-indexer index <root> [--store <db>]");
         std::process::exit(2);
     };
     let store = args
@@ -87,10 +87,10 @@ pub fn index(args: &[String]) {
     );
 }
 
-/// `compass-indexer analyse <root>`: load-bearing ranking, communities, cycles, dead code.
+/// `terrain-indexer analyse <root>`: load-bearing ranking, communities, cycles, dead code.
 pub fn analyse(args: &[String]) {
     let Some(root) = args.first() else {
-        eprintln!("usage: compass-indexer analyse <root>");
+        eprintln!("usage: terrain-indexer analyse <root>");
         std::process::exit(2);
     };
     let shared = Engine::new(&PathBuf::from(root), None, Options::default()).shared();
@@ -149,10 +149,10 @@ pub fn analyse(args: &[String]) {
     println!("\n{} dead-code candidates", a.dead.len());
 }
 
-/// `compass-indexer cycles <root>`: every import cycle as one JSON line (member paths).
+/// `terrain-indexer cycles <root>`: every import cycle as one JSON line (member paths).
 pub fn cycles(args: &[String]) {
     let Some(root) = args.first() else {
-        eprintln!("usage: compass-indexer cycles <root>");
+        eprintln!("usage: terrain-indexer cycles <root>");
         std::process::exit(2);
     };
     let shared = Engine::new(&PathBuf::from(root), None, Options::default()).shared();
@@ -168,12 +168,12 @@ pub fn cycles(args: &[String]) {
     }
 }
 
-/// `compass-indexer history <root> [--store <db>] [--rewind <n>]`: mines git history (index
+/// `terrain-indexer history <root> [--store <db>] [--rewind <n>]`: mines git history (index
 /// first, so files are known) and prints timings; with `--rewind`, then forgets the n newest
 /// commits and mines them again to time an incremental update.
 pub fn history(args: &[String]) {
     let Some(root) = args.first() else {
-        eprintln!("usage: compass-indexer history <root> [--store <db>] [--rewind <n>]");
+        eprintln!("usage: terrain-indexer history <root> [--store <db>] [--rewind <n>]");
         std::process::exit(2);
     };
     let flag = |name: &str| {

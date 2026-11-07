@@ -1,5 +1,5 @@
 // Compares Compass's import cycles with dependency-cruiser's on a TypeScript tree.
-// Usage: compass-indexer cycles <repo> > ours.jsonl
+// Usage: terrain-indexer cycles <repo> > ours.jsonl
 //        node bench/accuracy/cycles.mjs <repo> <subdir> ours.jsonl
 // dependency-cruiser runs with the subdir's tsconfig and counts type-only imports, as Compass does.
 import { execFileSync } from "node:child_process";

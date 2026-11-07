@@ -1,4 +1,4 @@
-//! compass-indexer: the out-of-process indexer for the Compass VS Code extension.
+//! terrain-indexer: the out-of-process indexer for the Compass VS Code extension.
 //! Speaks JSON-RPC 2.0 over stdio with LSP-style framing.
 
 mod cli;
@@ -45,7 +45,7 @@ fn main() {
     use_mimalloc_for_tree_sitter();
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--version") {
-        println!("compass-indexer {}", env!("CARGO_PKG_VERSION"));
+        println!("terrain-indexer {}", env!("CARGO_PKG_VERSION"));
         return;
     }
     match args.get(1).map(String::as_str) {

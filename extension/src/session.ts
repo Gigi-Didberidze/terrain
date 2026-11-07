@@ -19,7 +19,7 @@ export class Session implements vscode.Disposable {
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
-    this.log = vscode.window.createOutputChannel("Compass", { log: true });
+    this.log = vscode.window.createOutputChannel("Terrain", { log: true });
   }
 
   get workspaceRoot(): string | undefined {
@@ -63,11 +63,11 @@ export class Session implements vscode.Disposable {
     this.client = client;
     this.serverInfo = await client.request("initialize", {
       workspaceRoot: root,
-      storePath: join(storeDir, "compass.db"),
+      storePath: join(storeDir, "terrain.db"),
       clientVersion: String(this.context.extension.packageJSON.version ?? "0.0.0"),
-      capDataFiles: vscode.workspace.getConfiguration("compass").get<boolean>("map.capDataFiles", true),
-      exclude: vscode.workspace.getConfiguration("compass").get<string[]>("exclude", []),
-      history: vscode.workspace.getConfiguration("compass").get<boolean>("history.enabled", true),
+      capDataFiles: vscode.workspace.getConfiguration("terrain").get<boolean>("map.capDataFiles", true),
+      exclude: vscode.workspace.getConfiguration("terrain").get<string[]>("exclude", []),
+      history: vscode.workspace.getConfiguration("terrain").get<boolean>("history.enabled", true),
     });
     this.log.appendLine(`indexer ${this.serverInfo.serverVersion} ready (${binary})`);
     for (const l of this.startListeners) l(client);
@@ -75,8 +75,8 @@ export class Session implements vscode.Disposable {
   }
 
   private resolveBinary(): string {
-    const exe = process.platform === "win32" ? "compass-indexer.exe" : "compass-indexer";
-    const configured = vscode.workspace.getConfiguration("compass").get<string>("indexerPath");
+    const exe = process.platform === "win32" ? "terrain-indexer.exe" : "terrain-indexer";
+    const configured = vscode.workspace.getConfiguration("terrain").get<string>("indexerPath");
     const ext = this.context.extensionPath;
     const candidates = [
       configured,
@@ -85,7 +85,7 @@ export class Session implements vscode.Disposable {
       join(ext, "..", "indexer", "target", "debug", exe),
     ].filter((p): p is string => !!p);
     const found = candidates.find((p) => existsSync(p));
-    if (!found) throw new Error(`compass-indexer binary not found. Looked in:\n${candidates.join("\n")}`);
+    if (!found) throw new Error(`terrain-indexer binary not found. Looked in:\n${candidates.join("\n")}`);
     return found;
   }
 

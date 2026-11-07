@@ -30,8 +30,8 @@ export const VIEW_REQUEST_METHODS: readonly ViewRequestMethod[] = [
 ];
 
 /** Commands a state screen may offer; the host runs only these. */
-export type StateCommand = "compass.restartIndexer" | "compass.showLog" | "compass.reindex" | "workbench.action.files.openFolder";
-export const STATE_COMMANDS: readonly StateCommand[] = ["compass.restartIndexer", "compass.showLog", "compass.reindex", "workbench.action.files.openFolder"];
+export type StateCommand = "terrain.restartIndexer" | "terrain.showLog" | "terrain.reindex" | "workbench.action.files.openFolder";
+export const STATE_COMMANDS: readonly StateCommand[] = ["terrain.restartIndexer", "terrain.showLog", "terrain.reindex", "workbench.action.files.openFolder"];
 
 export interface StateAction {
   label: string;

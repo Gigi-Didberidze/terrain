@@ -23,7 +23,7 @@ if (!root) {
   process.exit(2);
 }
 const port = Number(opt("port", "4710"));
-const exe = process.platform === "win32" ? "compass-indexer.exe" : "compass-indexer";
+const exe = process.platform === "win32" ? "terrain-indexer.exe" : "terrain-indexer";
 const binary = opt("binary", join(here, "..", "..", "indexer", "target", "release", exe));
 const dist = join(here, "..", "..", "extension", "dist", "webview");
 if (!existsSync(join(dist, "main.js"))) {
@@ -33,7 +33,7 @@ if (!existsSync(join(dist, "main.js"))) {
 
 const rpc = new Rpc(binary);
 // --store reuses an existing index (warm start); default is a fresh temporary store.
-const store = opt("store", join(mkdtempSync(join(tmpdir(), "compass-harness-")), "compass.db"));
+const store = opt("store", join(mkdtempSync(join(tmpdir(), "compass-harness-")), "terrain.db"));
 const ready = rpc.request("initialize", { workspaceRoot: root, storePath: store, clientVersion: "harness" });
 const clients = new Set();
 const send = (msg) => {

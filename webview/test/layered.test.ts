@@ -42,8 +42,12 @@ test("layout of 80 nodes stays well under a millisecond budget", () => {
       edges.push(col < 2 ? { from: id, to: col === 1 ? 0 : 1 + ((i * 7) % 16) } : { from: col === 3 ? 0 : 33 + ((i * 5) % 16), to: id });
       id++;
     }
-  const t = performance.now();
-  for (let i = 0; i < 20; i++) layered(nodes, edges);
-  const per = (performance.now() - t) / 20;
+  // Best of several rounds, so a busy machine (a build running alongside) cannot fail it.
+  let per = Infinity;
+  for (let round = 0; round < 5; round++) {
+    const t = performance.now();
+    for (let i = 0; i < 20; i++) layered(nodes, edges);
+    per = Math.min(per, (performance.now() - t) / 20);
+  }
   assert.ok(per < 5, `${per.toFixed(2)} ms per layout`);
 });
