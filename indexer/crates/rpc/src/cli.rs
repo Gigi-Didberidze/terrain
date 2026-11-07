@@ -86,3 +86,84 @@ pub fn index(args: &[String]) {
         rss
     );
 }
+
+/// `compass-indexer analyse <root>`: load-bearing ranking, communities, cycles, dead code.
+pub fn analyse(args: &[String]) {
+    let Some(root) = args.first() else {
+        eprintln!("usage: compass-indexer analyse <root>");
+        std::process::exit(2);
+    };
+    let shared = Engine::new(&PathBuf::from(root), None, Options::default()).shared();
+    run_index(&shared, &NoEvents);
+    let e = shared.read();
+    let a = e.analysis.clone();
+    let path = |s: u32| e.graph.path(s).unwrap_or("?").to_string();
+    println!("analysis: {:.0} ms, {} files", a.millis, a.files.len());
+    let mut ranked: Vec<u32> = a.files.clone();
+    ranked.sort_by(|x, y| a.rank_of(*y).total_cmp(&a.rank_of(*x)));
+    println!("\ntop 20 load-bearing files (dependents within 6 steps):");
+    for (i, &f) in ranked.iter().take(20).enumerate() {
+        println!(
+            "{:>3}. {:<60} rank {:.5}  blast {}",
+            i + 1,
+            path(f),
+            a.rank_of(f),
+            a.file_blast(f, 6, 1_000_000).len()
+        );
+    }
+    let mut comms: Vec<(usize, u32)> = a
+        .community_sizes
+        .iter()
+        .enumerate()
+        .map(|(c, &n)| (c, n))
+        .collect();
+    comms.sort_by_key(|x| std::cmp::Reverse(x.1));
+    println!("\n{} communities; largest:", comms.len());
+    for &(c, size) in comms.iter().take(8) {
+        let members: Vec<String> = a
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| a.community[*i] as usize == c)
+            .take(4)
+            .map(|(_, &f)| path(f))
+            .collect();
+        println!("  {size:>5} files  e.g. {}", members.join(", "));
+    }
+    println!(
+        "\n{} file cycles, {} directory cycles; largest file cycles:",
+        a.file_cycles.len(),
+        a.dir_cycles.len()
+    );
+    for c in a.file_cycles.iter().take(6) {
+        let brk = c
+            .break_edge
+            .map(|(x, y)| format!("{} -> {}", path(x), path(y)))
+            .unwrap_or_default();
+        println!(
+            "  {} files, e.g. {}; break: {brk}",
+            c.nodes.len(),
+            path(c.nodes[0])
+        );
+    }
+    println!("\n{} dead-code candidates", a.dead.len());
+}
+
+/// `compass-indexer cycles <root>`: every import cycle as one JSON line (member paths).
+pub fn cycles(args: &[String]) {
+    let Some(root) = args.first() else {
+        eprintln!("usage: compass-indexer cycles <root>");
+        std::process::exit(2);
+    };
+    let shared = Engine::new(&PathBuf::from(root), None, Options::default()).shared();
+    run_index(&shared, &NoEvents);
+    let e = shared.read();
+    for c in &e.analysis.file_cycles {
+        let members: Vec<&str> = c
+            .nodes
+            .iter()
+            .map(|&s| e.graph.path(s).unwrap_or("?"))
+            .collect();
+        println!("{}", serde_json::json!({ "files": members }));
+    }
+}

@@ -4,9 +4,7 @@
     "lib/billing.rb -imports-> lib/billing/tax.rb",
     "lib/billing/invoice.rb::Billing.Invoice.<=> -calls-> lib/billing/invoice.rb::Billing.Invoice.total",
     "lib/billing/invoice.rb::Billing.Invoice.total -calls-> lib/billing/tax.rb::Billing.Tax.apply",
-    "spec/invoice_spec.rb -calls-> lib/billing/invoice.rb::Billing.Invoice.total (0.50)",
-    "spec/invoice_spec.rb -imports-> lib/billing.rb",
-    "spec/invoice_spec.rb -references-> lib/billing/invoice.rb::Billing.Invoice"
+    "spec/invoice_spec.rb -imports-> lib/billing.rb"
   ],
   "nodes": [
     "class lib/billing/invoice.rb::Billing.Invoice [exported]",

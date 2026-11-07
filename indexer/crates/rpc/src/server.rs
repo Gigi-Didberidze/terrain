@@ -27,9 +27,13 @@ pub struct Server {
     state: Arc<RwLock<Option<Shared>>>,
 }
 
+#[derive(Clone)]
 struct RpcEvents(Outbox);
 
 impl Events for RpcEvents {
+    fn boxed(&self) -> Box<dyn Events> {
+        Box::new(self.clone())
+    }
     fn progress(&self, phase: Phase, done: u64, total: u64) {
         self.0.notify(
             notification::INDEX_PROGRESS,
@@ -209,6 +213,90 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
             }
             to_value(edges(&e, ep.slot, ep.limit.min(1000) as usize))
         }
+        method::NODE_CONTEXT => {
+            let cp: p::ContextParams = parse_params(params)?;
+            let e = s.read();
+            let node =
+                node_info(&e, cp.slot).ok_or_else(|| RpcError::invalid_params("no such node"))?;
+            let c = e
+                .context(cp.slot, cp.limit.clamp(1, 500) as usize)
+                .unwrap_or_default();
+            to_value(p::ContextResult {
+                node,
+                callers: refs(c.callers),
+                callees: refs(c.callees),
+                importers: refs(c.importers),
+                imports: refs(c.imports),
+                tests: refs(c.tests),
+                blast: refs(c.blast),
+                blast_count: c.blast_count,
+            })
+        }
+        method::FILE_LENSES => {
+            let pp: p::PathParams = parse_params(params)?;
+            let e = s.read();
+            let lenses = e
+                .lenses(&pp.path)
+                .into_iter()
+                .map(|l| p::LensItem {
+                    slot: l.slot,
+                    line: l.line,
+                    callers: l.callers,
+                    blast: l.blast,
+                    tests: l.tests,
+                    complexity: l.complexity,
+                })
+                .collect();
+            to_value(p::LensesResult { lenses })
+        }
+        method::ANALYSIS_CYCLES => {
+            let e = s.read();
+            let a = e.analysis.clone();
+            to_value(p::CyclesResult {
+                files: a.file_cycles.iter().map(|c| cycle_view(&e, c)).collect(),
+                dirs: a.dir_cycles.iter().map(|c| cycle_view(&e, c)).collect(),
+            })
+        }
+        method::ANALYSIS_DEAD => {
+            let lp: p::LimitParams = parse_params(params)?;
+            let e = s.read();
+            let a = e.analysis.clone();
+            let items = a
+                .dead
+                .iter()
+                .take(lp.limit.min(5000) as usize)
+                .map(|&s| node_ref(e.node_ref(s)))
+                .collect();
+            to_value(p::DeadResult {
+                items,
+                total: a.dead.len() as u32,
+            })
+        }
+        method::ANALYSIS_SUMMARY => {
+            let lp: p::LimitParams = parse_params(params)?;
+            let e = s.read();
+            let a = e.analysis.clone();
+            let mut ranked = a.files.clone();
+            ranked.sort_by(|x, y| a.rank_of(*y).total_cmp(&a.rank_of(*x)));
+            let top_load_bearing = ranked
+                .into_iter()
+                .take(lp.limit.min(200) as usize)
+                .map(|f| p::RankedRef {
+                    node: node_ref(e.node_ref(f)),
+                    load: a.load_of(f) as f64 / 65535.0,
+                    blast_count: e.blast_files(f).len() as u32,
+                })
+                .collect();
+            to_value(p::SummaryResult {
+                files: a.files.len() as u32,
+                communities: a.community_sizes.iter().filter(|&&n| n > 1).count() as u32,
+                file_cycles: a.file_cycles.len() as u32,
+                dir_cycles: a.dir_cycles.len() as u32,
+                dead: a.dead.len() as u32,
+                analysis_ms: a.millis,
+                top_load_bearing,
+            })
+        }
         method::NODE_LOCATE => {
             let lp: p::LocateParams = parse_params(params)?;
             let e = s.read();
@@ -311,7 +399,46 @@ fn node_info(e: &Engine, slot: u32) -> Option<p::NodeInfo> {
         ancestors,
         in_count,
         out_count,
+        load: e.analysis.load_of(slot) as f64 / 65535.0,
+        community: e.analysis.community_of(if i.kind.is_symbol() {
+            e.graph.node(slot).file
+        } else {
+            slot
+        }),
+        blast_count: e.blast_files(slot).len() as u32,
+        complexity: if i.kind.is_symbol() {
+            e.complexity(e.graph.node(slot).file)
+                .get(&slot)
+                .copied()
+                .unwrap_or(0)
+        } else {
+            0
+        },
+        dead_candidate: e.analysis.is_dead(slot),
+        in_cycle: e.analysis.is_in_cycle(slot),
     })
+}
+
+fn node_ref(r: compass_engine::context::NodeRef) -> p::NodeRef {
+    p::NodeRef {
+        slot: r.slot,
+        name: r.name,
+        kind: kind_dto(r.kind),
+        path: r.path,
+        line: r.line,
+    }
+}
+
+fn refs(v: Vec<compass_engine::context::NodeRef>) -> Vec<p::NodeRef> {
+    v.into_iter().map(node_ref).collect()
+}
+
+fn cycle_view(e: &Engine, c: &compass_engine::analysis::Cycle) -> p::CycleView {
+    p::CycleView {
+        members: c.nodes.iter().map(|&s| node_ref(e.node_ref(s))).collect(),
+        break_from: c.break_edge.map(|(a, _)| node_ref(e.node_ref(a))),
+        break_to: c.break_edge.map(|(_, b)| node_ref(e.node_ref(b))),
+    }
 }
 
 fn edge_kind_dto(k: compass_core::model::EdgeKind) -> p::EdgeKind {

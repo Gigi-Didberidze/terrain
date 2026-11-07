@@ -296,6 +296,7 @@ pub fn extract_tree(spec: &Spec, tree: &Tree, src: &[u8]) -> FileFacts {
             kind,
             line: line(node),
             from: enclosing(node.start_byte()),
+            member: has_receiver(node),
         });
         ref_pos.push(node.start_byte());
     }
@@ -497,6 +498,41 @@ fn regroup(facts: &mut FileFacts, owners: &[Option<String>], impls: &[bool]) {
     for r in facts.refs.iter_mut() {
         r.from = r.from.map(|f| remap(f as usize) as u32);
     }
+}
+
+/// Whether a referenced name is reached through a receiver or qualifier: `x.f()`, `mod.f()`,
+/// `a->f()`, `Foo::f()`, `obj.method()` in every grammar's own node shape.
+fn has_receiver(name: Node) -> bool {
+    let Some(p) = name.parent() else { return false };
+    let k = p.kind();
+    // Node kinds that only exist with something on the left of the name.
+    if [
+        "attribute",
+        "member_expression",
+        "field_expression",
+        "selector_expression",
+        "scoped_identifier",
+        "navigation_expression",
+        "navigation_suffix",
+        "member_access_expression",
+        "member_call_expression",
+        "nullsafe_member_call_expression",
+        "scoped_call_expression",
+        "scope_resolution",
+        "qualified_identifier",
+        "qualified_name",
+        "qualified_type",
+    ]
+    .contains(&k)
+    {
+        return true;
+    }
+    // Calls whose node carries the receiver in a field (Java, Ruby).
+    if k == "method_invocation" || k == "call" {
+        return p.child_by_field_name("object").is_some()
+            || p.child_by_field_name("receiver").is_some();
+    }
+    false
 }
 
 /// Whole import statements (Java, Kotlin, Swift) become their specifier:

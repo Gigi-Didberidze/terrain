@@ -1,6 +1,6 @@
 {
   "$comment": "Single source of truth for the indexer <-> extension protocol. Run `node protocol/gen.mjs` after editing. Field names are camelCase; Rust fields are generated in snake_case with serde renames. Types: string, bool, u32, u64, f64, bytes (base64 string), Name (struct or enum), T[] (array), and a trailing ? on a field name marks it optional.",
-  "version": 3,
+  "version": 4,
   "enums": {
     "IndexPhase": [
       "discover",
@@ -115,7 +115,13 @@
       "rect?": "Rect",
       "ancestors": "u32[]",
       "inCount": "u32",
-      "outCount": "u32"
+      "outCount": "u32",
+      "load": "f64",
+      "community": "u32",
+      "blastCount": "u32",
+      "complexity": "u32",
+      "deadCandidate": "bool",
+      "inCycle": "bool"
     },
     "LocateParams": {
       "path": "string",
@@ -181,6 +187,71 @@
       "slot": "u32",
       "edges": "EdgeView[]",
       "total": "u32"
+    },
+    "NodeRef": {
+      "slot": "u32",
+      "name": "string",
+      "kind": "NodeKind",
+      "path": "string",
+      "line": "u32"
+    },
+    "ContextParams": {
+      "slot": "u32",
+      "limit": "u32"
+    },
+    "ContextResult": {
+      "node": "NodeInfo",
+      "callers": "NodeRef[]",
+      "callees": "NodeRef[]",
+      "importers": "NodeRef[]",
+      "imports": "NodeRef[]",
+      "tests": "NodeRef[]",
+      "blast": "NodeRef[]",
+      "blastCount": "u32"
+    },
+    "PathParams": {
+      "path": "string"
+    },
+    "LensItem": {
+      "slot": "u32",
+      "line": "u32",
+      "callers": "u32",
+      "blast": "u32",
+      "tests": "u32",
+      "complexity": "u32"
+    },
+    "LensesResult": {
+      "lenses": "LensItem[]"
+    },
+    "CycleView": {
+      "members": "NodeRef[]",
+      "breakFrom?": "NodeRef",
+      "breakTo?": "NodeRef"
+    },
+    "CyclesResult": {
+      "files": "CycleView[]",
+      "dirs": "CycleView[]"
+    },
+    "LimitParams": {
+      "limit": "u32"
+    },
+    "DeadResult": {
+      "items": "NodeRef[]",
+      "total": "u32"
+    },
+    "RankedRef": {
+      "node": "NodeRef",
+      "load": "f64",
+      "blastCount": "u32"
+    },
+    "SummaryResult": {
+      "files": "u32",
+      "communities": "u32",
+      "fileCycles": "u32",
+      "dirCycles": "u32",
+      "dead": "u32",
+      "analysisMs": "f64",
+      "topLoadBearing": "RankedRef[]"
     }
   },
   "requests": {
@@ -227,6 +298,26 @@
     "node/edges": {
       "params": "EdgesParams",
       "result": "EdgesResult"
+    },
+    "node/context": {
+      "params": "ContextParams",
+      "result": "ContextResult"
+    },
+    "file/lenses": {
+      "params": "PathParams",
+      "result": "LensesResult"
+    },
+    "analysis/cycles": {
+      "params": null,
+      "result": "CyclesResult"
+    },
+    "analysis/dead": {
+      "params": "LimitParams",
+      "result": "DeadResult"
+    },
+    "analysis/summary": {
+      "params": "LimitParams",
+      "result": "SummaryResult"
     }
   },
   "notifications": {

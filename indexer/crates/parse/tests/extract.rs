@@ -351,5 +351,8 @@ fn tier2_lua_uses_the_grammar_tags_query() {
     let names: Vec<&str> = f.defs.iter().map(|d| d.name.as_str()).collect();
     assert!(names.iter().any(|n| n.ends_with("render")), "{names:?}");
     assert!(names.contains(&"helper"), "{names:?}");
-    assert!(f.refs.iter().any(|r| r.name == "helper" && r.kind == RefKind::Call));
+    assert!(f
+        .refs
+        .iter()
+        .any(|r| r.name == "helper" && r.kind == RefKind::Call));
 }

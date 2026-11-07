@@ -260,9 +260,16 @@ impl Semantic {
                 unresolved += 1;
             }
             let w = 1.0 / targets.len().max(1) as f32;
+            // Rust `mod foo;` puts foo.rs into the crate: containment, not a dependency (it
+            // would otherwise form a cycle with every `use crate::...` back to the parent).
+            let kind = if imp.path.starts_with("mod:") {
+                EdgeKind::Contains
+            } else {
+                EdgeKind::Imports
+            };
             for t in targets {
                 if let Some(slot) = g.slot_of_path(&t) {
-                    edges.push((file, slot, EdgeKind::Imports, w));
+                    edges.push((file, slot, kind, w));
                     imports.push(slot);
                 }
             }
@@ -302,7 +309,19 @@ impl Semantic {
                 Box::new(|s| g.node(s).file == file),
                 Box::new(|s| imported.contains(&g.node(s).file)),
                 Box::new(|s| same_package(g.node(s).file)),
-                Box::new(|s| family(g.node(s).lang) == fam),
+                // Global fallback: free functions and types only. A method needs a receiver, and
+                // a receiver from a file never imported is most likely a built-in (`xs.append()`
+                // must not resolve to the one user class that happens to define `append`).
+                // Qualified calls (`mod.f()`, `x.f()`) are left to the imported tier.
+                // Calls only: type names bind through imports (a lone `type T` somewhere must not
+                // capture every generic `T`), and very short names are too generic to guess.
+                Box::new(|s| {
+                    r.kind == RefKind::Call
+                        && !r.member
+                        && r.name.len() > 2
+                        && family(g.node(s).lang) == fam
+                        && g.node(s).kind != NodeKind::Method
+                }),
             ];
             for (i, tier) in tiers.iter().enumerate() {
                 let hit: Vec<u32> = cands
@@ -335,7 +354,8 @@ impl Semantic {
 
     /// Replaces a file's syntactic edges with freshly computed ones.
     pub fn apply(&mut self, g: &mut Graph, fe: FileEdges) {
-        let pred = |e: &EdgeRec| e.conf == Confidence::Syntactic && e.kind.is_dependency();
+        // Everything resolution produced (dependencies and Rust module containment).
+        let pred = |e: &EdgeRec| e.conf == Confidence::Syntactic && e.kind != EdgeKind::Cochanges;
         g.clear_file_out_edges(fe.file, pred);
         for (s, d, k, w) in fe.edges {
             if g.get(s).is_some() && g.get(d).is_some() {

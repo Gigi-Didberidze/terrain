@@ -1,6 +1,8 @@
 //! compass-engine: the indexing pipeline (discover → hash → parse → resolve → analyse → persist)
 //! and the queries every view runs against the graph.
 
+pub mod analysis;
+pub mod context;
 pub mod imports;
 pub mod project;
 pub mod resolve;
@@ -43,12 +45,17 @@ pub trait Events: Send + Sync {
     fn progress(&self, phase: Phase, done: u64, total: u64);
     /// The graph changed; `layout` is true when tile geometry may have moved.
     fn changed(&self, epoch: u64, layout: bool);
+    /// An owned copy for background work (debounced re-analysis).
+    fn boxed(&self) -> Box<dyn Events>;
 }
 
 pub struct NoEvents;
 impl Events for NoEvents {
     fn progress(&self, _: Phase, _: u64, _: u64) {}
     fn changed(&self, _: u64, _: bool) {}
+    fn boxed(&self) -> Box<dyn Events> {
+        Box::new(NoEvents)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -79,6 +86,12 @@ pub struct Engine {
     tiles_served: Arc<std::sync::atomic::AtomicBool>,
     /// Facts, name index and resolution state.
     pub sem: Semantic,
+    /// Latest metrics (load-bearing, communities, cycles, dead code); replaced atomically.
+    pub analysis: Arc<analysis::Analysis>,
+    /// Bumped on every change; a scheduled re-analysis only runs if it is still current.
+    analysis_gen: Arc<std::sync::atomic::AtomicU64>,
+    /// Complexity per file, keyed by content hash (computed on demand).
+    complexity_cache: Mutex<ComplexityCache>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -91,6 +104,10 @@ pub struct Timings {
 }
 
 pub type Shared = Arc<RwLock<Engine>>;
+
+/// Per file: (content hash, complexity per symbol slot).
+type ComplexityCache =
+    std::collections::HashMap<u32, ([u8; 32], std::collections::HashMap<u32, u32>)>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FileMeta {
@@ -135,6 +152,9 @@ impl Engine {
             timings: Timings::default(),
             tiles_served: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             sem: Semantic::default(),
+            analysis: Arc::new(analysis::Analysis::default()),
+            analysis_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            complexity_cache: Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -161,6 +181,14 @@ impl Engine {
             let name = row.path.rsplit('/').next().unwrap_or(&row.path);
             self.search.upsert(slot as u32, name, &row.path);
         }
+    }
+
+    /// Content hash of a file (zeros if unknown).
+    pub fn meta_hash(&self, file: u32) -> [u8; 32] {
+        self.meta
+            .get(file as usize)
+            .map(|m| m.hash)
+            .unwrap_or([0; 32])
     }
 
     /// Content state of a file on the map.
@@ -280,8 +308,11 @@ impl Engine {
             .store(true, std::sync::atomic::Ordering::Relaxed);
         self.with_layout(|layout| {
             let items = tiles::query(&self.graph, layout, z, x, y, tiles::TILE_ITEM_LIMIT);
-            tiles::pack(&self.graph, layout, z, x, y, &items, |_| {
-                LensValues::default()
+            let a = &self.analysis;
+            tiles::pack(&self.graph, layout, z, x, y, &items, |slot| LensValues {
+                community: a.colour_of(slot),
+                load: a.load_of(slot),
+                ..LensValues::default()
             })
         })
     }
@@ -647,6 +678,22 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
         eprintln!("resolve: {} files, total {:.0} ms", all.len(), ms(t0));
     }
 
+    // Analyse: metrics over the resolved graph, computed under the read lock.
+    set_phase(shared, Phase::Analyse);
+    run_analysis(shared, events);
+    if trace {
+        let a = shared.read().analysis.clone();
+        eprintln!(
+            "analyse: {:.0} ms ({} files, {} communities, {} file cycles, {} dir cycles, {} dead candidates)",
+            a.millis,
+            a.files.len(),
+            a.community_sizes.len(),
+            a.file_cycles.len(),
+            a.dir_cycles.len(),
+            a.dead.len()
+        );
+    }
+
     let mut e = shared.write();
     e.timings.total_ms = ms(t0);
     e.phase = Phase::Idle;
@@ -758,7 +805,41 @@ pub fn apply_changes(shared: &Shared, paths: &[String], events: &dyn Events) -> 
     // Read the epoch after re-resolution so notifications never go backwards.
     let epoch = shared.read().graph.epoch;
     events.changed(epoch, layout);
+    schedule_analysis(shared, events);
     true
+}
+
+/// Computes metrics over the current graph and installs them.
+pub fn run_analysis(shared: &Shared, events: &dyn Events) {
+    let a = {
+        let e = shared.read();
+        analysis::analyse(&e.graph)
+    };
+    let mut e = shared.write();
+    e.analysis = Arc::new(a);
+    let epoch = e.graph.epoch;
+    drop(e);
+    // Lens colours changed: tiles must be refetched (geometry did not move).
+    events.changed(epoch, false);
+}
+
+/// Re-analyses after edits settle (500 ms without further changes), off the request path.
+pub fn schedule_analysis(shared: &Shared, events: &dyn Events) {
+    let gen = {
+        let e = shared.read();
+        e.analysis_gen
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1
+    };
+    let counter = shared.read().analysis_gen.clone();
+    let shared = shared.clone();
+    let events = events.boxed();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if counter.load(std::sync::atomic::Ordering::SeqCst) == gen {
+            run_analysis(&shared, &*events);
+        }
+    });
 }
 
 /// One file after reading, hashing and extraction.

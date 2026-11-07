@@ -51,6 +51,8 @@ fn main() {
     match args.get(1).map(String::as_str) {
         Some("index") => return cli::index(&args[2..]),
         Some("imports") => return cli::imports(&args[2..]),
+        Some("analyse") => return cli::analyse(&args[2..]),
+        Some("cycles") => return cli::cycles(&args[2..]),
         _ => {}
     }
 

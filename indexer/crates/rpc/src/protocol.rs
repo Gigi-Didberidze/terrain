@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum IndexPhase {
@@ -191,6 +191,12 @@ pub struct NodeInfo {
     pub ancestors: Vec<u32>,
     pub in_count: u32,
     pub out_count: u32,
+    pub load: f64,
+    pub community: u32,
+    pub blast_count: u32,
+    pub complexity: u32,
+    pub dead_candidate: bool,
+    pub in_cycle: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -296,6 +302,109 @@ pub struct EdgesResult {
     pub total: u32,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeRef {
+    pub slot: u32,
+    pub name: String,
+    pub kind: NodeKind,
+    pub path: String,
+    pub line: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextParams {
+    pub slot: u32,
+    pub limit: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextResult {
+    pub node: NodeInfo,
+    pub callers: Vec<NodeRef>,
+    pub callees: Vec<NodeRef>,
+    pub importers: Vec<NodeRef>,
+    pub imports: Vec<NodeRef>,
+    pub tests: Vec<NodeRef>,
+    pub blast: Vec<NodeRef>,
+    pub blast_count: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathParams {
+    pub path: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LensItem {
+    pub slot: u32,
+    pub line: u32,
+    pub callers: u32,
+    pub blast: u32,
+    pub tests: u32,
+    pub complexity: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LensesResult {
+    pub lenses: Vec<LensItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CycleView {
+    pub members: Vec<NodeRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub break_from: Option<NodeRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub break_to: Option<NodeRef>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CyclesResult {
+    pub files: Vec<CycleView>,
+    pub dirs: Vec<CycleView>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LimitParams {
+    pub limit: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeadResult {
+    pub items: Vec<NodeRef>,
+    pub total: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RankedRef {
+    pub node: NodeRef,
+    pub load: f64,
+    pub blast_count: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryResult {
+    pub files: u32,
+    pub communities: u32,
+    pub file_cycles: u32,
+    pub dir_cycles: u32,
+    pub dead: u32,
+    pub analysis_ms: f64,
+    pub top_load_bearing: Vec<RankedRef>,
+}
+
 pub mod method {
     pub const INITIALIZE: &str = "initialize";
     pub const PING: &str = "ping";
@@ -308,6 +417,11 @@ pub mod method {
     pub const FILES_CHANGED: &str = "files/changed";
     pub const INDEX_STATUS: &str = "index/status";
     pub const NODE_EDGES: &str = "node/edges";
+    pub const NODE_CONTEXT: &str = "node/context";
+    pub const FILE_LENSES: &str = "file/lenses";
+    pub const ANALYSIS_CYCLES: &str = "analysis/cycles";
+    pub const ANALYSIS_DEAD: &str = "analysis/dead";
+    pub const ANALYSIS_SUMMARY: &str = "analysis/summary";
 }
 
 pub mod notification {

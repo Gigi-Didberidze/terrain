@@ -1,7 +1,8 @@
 {
   "edges": [
+    "src/lib.rs -contains-> src/order.rs",
+    "src/lib.rs -contains-> src/pricing.rs",
     "src/lib.rs -imports-> src/order.rs",
-    "src/lib.rs -imports-> src/pricing.rs",
     "src/main.rs -imports-> src/lib.rs",
     "src/order.rs -imports-> src/pricing.rs",
     "src/order.rs::Order.total -calls-> src/order.rs::Order.subtotal",

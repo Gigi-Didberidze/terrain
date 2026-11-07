@@ -500,7 +500,12 @@ fn rust(from: &str, s: &str, ctx: &Ctx) -> Vec<String> {
             }
             krate => match ctx.project.crates.get(krate) {
                 Some(r) => (r.clone(), &segs[1..]),
-                None => continue, // std or an external crate
+                // Rust 2018: a path may start with a module of the current one (`use order::X`
+                // in lib.rs). Otherwise it is std or an external crate.
+                None => match rust_module_file(&rust_mod_dir(from), krate, idx) {
+                    Some(f) => (f, &segs[1..]),
+                    None => continue,
+                },
             },
         };
         // Walk down module files as far as they exist; the rest are items inside.

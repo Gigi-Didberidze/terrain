@@ -5,7 +5,7 @@ use compass_core::model::NodeKind;
 use serde::{Deserialize, Serialize};
 
 /// Bump when extraction output changes; cached facts from older versions are discarded.
-pub const EXTRACTOR_VERSION: u32 = 1;
+pub const EXTRACTOR_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FileFacts {
@@ -47,6 +47,8 @@ pub struct Ref {
     pub line: u32,
     /// Innermost enclosing def (index into `defs`); None at file level.
     pub from: Option<u32>,
+    /// Called or named through a receiver or qualifier (`x.f()`, `mod.f()`, `Foo::f()`).
+    pub member: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
