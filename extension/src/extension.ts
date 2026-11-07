@@ -17,7 +17,8 @@ let session: Session | undefined;
 export interface TerrainApi {
   session: Session;
   map: MapController;
-  watcher: Watcher;
+  /** Created when the indexer first starts (it has nothing to report to before). */
+  readonly watcher: Watcher | undefined;
   context: ContextView;
   lsp: LspBridge;
   review: ReviewStatus;
@@ -31,15 +32,22 @@ export function activate(context: vscode.ExtensionContext): TerrainApi {
   const s = new Session(context);
   session = s;
   const map = new MapController(context, s);
-  const watcher = new Watcher(s);
   const contextView = new ContextView(s);
   const lens = new TerrainCodeLens(s);
   const review = new ReviewStatus(s);
   const lsp = new LspBridge(s);
   // Whatever the developer looks at gets its calls confirmed by the language server.
   contextView.onShow((slot) => lsp.enrich(slot));
-  watcher.onHistory.event(() => review.refresh(0));
-  watcher.onHistory.event(() => contextView.historyChanged());
+  // The file watcher starts with the indexer: before that every change reaches the cold index
+  // anyway, and creating a workspace-wide watcher is one of the costlier parts of activation.
+  let watcher: Watcher | undefined;
+  s.onStart(() => {
+    if (watcher) return;
+    watcher = new Watcher(s);
+    watcher.onHistory.event(() => review.refresh(0));
+    watcher.onHistory.event(() => contextView.historyChanged());
+    context.subscriptions.push(watcher);
+  });
   map.onSelection.event((slot) => {
     if (slot !== null) void contextView.showSlot(slot);
   });
@@ -55,7 +63,6 @@ export function activate(context: vscode.ExtensionContext): TerrainApi {
   context.subscriptions.push(
     s,
     map,
-    watcher,
     contextView,
     lens,
     review,
@@ -130,7 +137,18 @@ export function activate(context: vscode.ExtensionContext): TerrainApi {
       await client.request("settings/update", { capDataFiles: vscode.workspace.getConfiguration("terrain").get<boolean>("map.capDataFiles", true) });
     }),
   );
-  return { session: s, map, watcher, context: contextView, lsp, review, activationMs: performance.now() - t0 };
+  const activationMs = performance.now() - t0;
+  return {
+    session: s,
+    map,
+    get watcher() {
+      return watcher;
+    },
+    context: contextView,
+    lsp,
+    review,
+    activationMs,
+  };
 }
 
 /** The innermost node at the cursor (symbol, else file). */
