@@ -2,7 +2,7 @@
 // payloads to raw bytes, opens files, and pushes "you are here" updates.
 import * as vscode from "vscode";
 import type { NodeInfo, TilesResult } from "../../protocol/generated/protocol.ts";
-import { VIEW_REQUEST_METHODS, type ViewTile, type ViewToHost } from "../../protocol/webview.ts";
+import { VIEW_REQUEST_METHODS, type HostToView, type ViewTile, type ViewToHost } from "../../protocol/webview.ts";
 import type { IndexerClient } from "./indexerClient.ts";
 import { MapPanel } from "./panel.ts";
 import type { Session } from "./session.ts";
@@ -85,9 +85,31 @@ export class MapController implements vscode.Disposable {
         if (m.level === "error") this.session.log.error(m.text);
         else this.session.log.info(m.text);
         return;
+      case "svg":
+        await this.saveSvg(m.svg);
+        return;
       case "ready":
         return;
     }
+  }
+
+  /** Sends a command to the map, opening it first if needed. */
+  async command(msg: HostToView): Promise<void> {
+    // show() brings an existing panel to the front; open() also starts the indexer.
+    const panel = MapPanel.current ? MapPanel.show(this.context.extensionUri) : await this.open();
+    panel.post(msg);
+  }
+
+  private async saveSvg(svg: string): Promise<void> {
+    const root = this.session.workspaceRoot;
+    const target = await vscode.window.showSaveDialog({
+      defaultUri: root ? vscode.Uri.joinPath(vscode.Uri.file(root), "compass-view.svg") : undefined,
+      filters: { SVG: ["svg"] },
+      saveLabel: "Export",
+    });
+    if (!target) return;
+    await vscode.workspace.fs.writeFile(target, Buffer.from(svg, "utf8"));
+    void vscode.window.showInformationMessage(`Compass: view exported to ${vscode.workspace.asRelativePath(target)}`);
   }
 
   async openNode(slot: number): Promise<void> {

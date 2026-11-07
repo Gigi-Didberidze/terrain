@@ -38,8 +38,8 @@ export class CompassCodeLens implements vscode.CodeLensProvider, vscode.Disposab
         const line = Math.max(0, Math.min(doc.lineCount - 1, l.line - 1));
         return new vscode.CodeLens(new vscode.Range(line, 0, line, 0), {
           title: parts.join(" · "),
-          tooltip: "Compass: show this symbol's context and its place on the map",
-          command: "compass.revealNode",
+          tooltip: "Compass: show what uses this and what it uses (Neighbourhood)",
+          command: "compass.showNeighbourhood",
           arguments: [l.slot],
         });
       });

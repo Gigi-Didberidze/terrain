@@ -1,6 +1,6 @@
 {
   "name": "compass-map",
-  "displayName": "Compass \u00e2\u20ac\u201d Code Map",
+  "displayName": "Compass â€” Code Map",
   "description": "A fast, deterministic map of your codebase: where you are, what holds it up, and what really belongs together.",
   "version": "0.1.0",
   "publisher": "gigi-didberidze",
@@ -37,6 +37,31 @@
       {
         "command": "compass.searchMap",
         "title": "Search Map",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.showNeighbourhood",
+        "title": "Show Neighbourhood of Symbol",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.findPath",
+        "title": "Find Path Between…",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.review",
+        "title": "Review Changes",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.blastRadius",
+        "title": "Blast Radius of Current Change",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.exportSvg",
+        "title": "Export View as SVG",
         "category": "Compass"
       },
       {
@@ -80,6 +105,16 @@
         "command": "compass.openMap",
         "key": "ctrl+alt+m",
         "mac": "cmd+alt+m"
+      },
+      {
+        "command": "compass.showNeighbourhood",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n"
+      },
+      {
+        "command": "compass.review",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r"
       }
     ],
     "configuration": {
@@ -99,6 +134,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Count data files (CSV, logs, datasets, large JSON/XML/YAML, translations, ...) as at most 50 lines of area, so the map's area keeps meaning *lines of code*. Turn off to draw them at their full size."
+        },
+        "compass.semanticEnrichment.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Confirm call edges of the symbol you are looking at with VS Code's call hierarchy (the language's own server). Confirmed calls draw solid; name-matched guesses the language server contradicts are removed."
         }
       }
     },
@@ -111,6 +151,13 @@
         {
           "command": "compass.openNodeRef",
           "when": "false"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "compass.showNeighbourhood",
+          "when": "view == compass.context && viewItem == compassNode",
+          "group": "navigation"
         }
       ]
     },

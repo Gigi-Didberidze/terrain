@@ -8,6 +8,9 @@ import { Watcher } from "./watcher.ts";
 import { MapPanel } from "./panel.ts";
 import { ContextView, openNodeRef } from "./views/contextView.ts";
 import { CompassCodeLens } from "./views/codeLens.ts";
+import { pickReviewFile, ReviewStatus } from "./views/review.ts";
+import { toRelative } from "./paths.ts";
+import { LspBridge } from "./lspBridge.ts";
 
 let session: Session | undefined;
 
@@ -16,6 +19,8 @@ export interface CompassApi {
   map: MapController;
   watcher: Watcher;
   context: ContextView;
+  lsp: LspBridge;
+  review: ReviewStatus;
   activationMs: number;
 }
 
@@ -29,6 +34,11 @@ export function activate(context: vscode.ExtensionContext): CompassApi {
   const watcher = new Watcher(s);
   const contextView = new ContextView(s);
   const lens = new CompassCodeLens(s);
+  const review = new ReviewStatus(s);
+  const lsp = new LspBridge(s);
+  // Whatever the developer looks at gets its calls confirmed by the language server.
+  contextView.onShow((slot) => lsp.enrich(slot));
+  watcher.onHistory.event(() => review.refresh(0));
   watcher.onHistory.event(() => contextView.historyChanged());
   map.onSelection.event((slot) => {
     if (slot !== null) void contextView.showSlot(slot);
@@ -37,7 +47,9 @@ export function activate(context: vscode.ExtensionContext): CompassApi {
     client.on("map/changed", () => {
       contextView.refresh();
       lens.refresh();
+      review.refresh();
     });
+    review.refresh(0);
   });
   const root = () => s.workspaceRoot ?? "";
   context.subscriptions.push(
@@ -46,6 +58,8 @@ export function activate(context: vscode.ExtensionContext): CompassApi {
     watcher,
     contextView,
     lens,
+    review,
+    lsp,
     vscode.languages.registerCodeLensProvider(
       CODE_LANGUAGES.map((language) => ({ language, scheme: "file" })),
       lens,
@@ -66,6 +80,38 @@ export function activate(context: vscode.ExtensionContext): CompassApi {
       await vscode.commands.executeCommand("compass.context.focus");
       if (MapPanel.current) await map.reveal(slot);
     }),
+    vscode.commands.registerCommand("compass.showNeighbourhood", async (slot?: number) => {
+      const target = typeof slot === "number" ? slot : await slotAtCursor(s);
+      if (target === undefined) {
+        void vscode.window.showInformationMessage("Compass: put the cursor in a function, class or file that is on the map.");
+        return;
+      }
+      await map.command({ type: "command", command: "neighbourhood", slot: target });
+    }),
+    vscode.commands.registerCommand("compass.findPath", async () => {
+      const from = await pickNode(s, "Find path: from (type to search)");
+      if (from === undefined) return;
+      const to = await pickNode(s, "Find path: to (type to search)");
+      if (to === undefined) return;
+      await map.command({ type: "command", command: "path", from, to });
+    }),
+    vscode.commands.registerCommand("compass.blastRadius", () => map.command({ type: "command", command: "lens", lens: 6 })),
+    vscode.commands.registerCommand("compass.review", async () => {
+      await map.command({ type: "command", command: "lens", lens: 6 });
+      const item = await pickReviewFile(s);
+      review.refresh(0);
+      if (item) {
+        await openNodeRef(root(), item.node);
+        await map.reveal(item.node.slot);
+      }
+    }),
+    vscode.commands.registerCommand("compass.exportSvg", async () => {
+      if (!MapPanel.current) {
+        void vscode.window.showInformationMessage("Compass: open the map (or a Neighbourhood) first; the export draws what it shows.");
+        return;
+      }
+      await map.command({ type: "command", command: "exportSvg" });
+    }),
     vscode.commands.registerCommand("compass.showCycles", () => showCycles(s, map)),
     vscode.commands.registerCommand("compass.showDeadCode", () => showDeadCode(s, map)),
     vscode.commands.registerCommand("compass.showMisplaced", () => showMisplaced(s, map)),
@@ -76,7 +122,52 @@ export function activate(context: vscode.ExtensionContext): CompassApi {
       await client.request("settings/update", { capDataFiles: vscode.workspace.getConfiguration("compass").get<boolean>("map.capDataFiles", true) });
     }),
   );
-  return { session: s, map, watcher, context: contextView, activationMs: performance.now() - t0 };
+  return { session: s, map, watcher, context: contextView, lsp, review, activationMs: performance.now() - t0 };
+}
+
+/** The innermost node at the cursor (symbol, else file). */
+async function slotAtCursor(s: Session): Promise<number | undefined> {
+  const editor = vscode.window.activeTextEditor;
+  const root = s.workspaceRoot;
+  if (!editor || !root || editor.document.uri.scheme !== "file") return undefined;
+  const rel = toRelative(root, editor.document.uri.fsPath);
+  if (!rel) return undefined;
+  const client = await s.get();
+  const r = await client.request("node/locate", { path: rel, line: editor.selection.active.line + 1 });
+  return r.node?.slot;
+}
+
+/** Quick pick backed by the indexer's search, re-queried as the user types. */
+async function pickNode(s: Session, title: string): Promise<number | undefined> {
+  const client = await s.get();
+  const qp = vscode.window.createQuickPick<vscode.QuickPickItem & { slot: number }>();
+  qp.title = title;
+  qp.placeholder = "Symbol or file name";
+  qp.matchOnDescription = true;
+  let seq = 0;
+  qp.onDidChangeValue(async (q) => {
+    const mine = ++seq;
+    if (!q.trim()) {
+      qp.items = [];
+      return;
+    }
+    qp.busy = true;
+    const r = await client.request("search", { query: q, limit: 30 });
+    if (mine !== seq) return;
+    qp.items = r.hits.map((h) => ({ label: h.name, description: `${h.kind} · ${h.path}${h.kind === "file" ? "" : `:${h.line}`}`, slot: h.slot, alwaysShow: true }));
+    qp.busy = false;
+  });
+  return new Promise((resolve) => {
+    qp.onDidAccept(() => {
+      resolve(qp.selectedItems[0]?.slot);
+      qp.hide();
+    });
+    qp.onDidHide(() => {
+      resolve(undefined);
+      qp.dispose();
+    });
+    qp.show();
+  });
 }
 
 /** Import cycles, largest first; picking one reveals it and names the edge that breaks it. */

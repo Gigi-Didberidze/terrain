@@ -49,6 +49,9 @@ const pct = (load: number) => (load >= 0.5 ? `top ${Math.max(1, Math.round((1 - 
 
 export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<Item | undefined>();
+  private readonly shown = new vscode.EventEmitter<number>();
+  /** Fired with each node the sidebar shows (cursor, map selection, commands). */
+  readonly onShow = this.shown.event;
   readonly onDidChangeTreeData = this.changed.event;
   private ctx: ContextResult | undefined;
   private hist: HistoryFileResult | undefined;
@@ -67,6 +70,7 @@ export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Dispos
     this.disposables.push(
       this.view,
       this.changed,
+      this.shown,
       vscode.window.onDidChangeTextEditorSelection(() => this.schedule()),
       vscode.window.onDidChangeActiveTextEditor(() => this.schedule()),
       this.view.onDidChangeVisibility(() => this.schedule(0)),
@@ -83,6 +87,7 @@ export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Dispos
       this.ctx = ctx;
       this.lastKey = `slot:${slot}`;
       this.render();
+      this.shown.fire(slot);
       if (path && this.hist?.commits) void this.loadBlame(path);
     } catch {
       // Node gone or indexer restarting.
