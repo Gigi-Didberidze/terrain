@@ -73,6 +73,26 @@ for (const r of results) {
   }
 }
 
+// Regressions: more than 10% worse than the previous run of the same metric on the same CPU
+// model (comparing across machines would measure the hardware, not the code).
+const regressions = [];
+const cpuModel = cpus()[0]?.model;
+const historyPath = join(here, "results", "history.jsonl");
+if (existsSync(historyPath)) {
+  const past = readFileSync(historyPath, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.machine?.cpuModel === cpuModel);
+  const last = past[past.length - 1];
+  if (last) {
+    for (const r of results) {
+      if (typeof r.value !== "number" || !/Ms$|MB$/.test(r.metric)) continue;
+      const prev = last.results.find((p) => p.repo === r.repo && p.metric === r.metric);
+      // Ignore sub-millisecond noise.
+      if (prev && typeof prev.value === "number" && r.value > prev.value * 1.1 && r.value - prev.value > 2) {
+        regressions.push({ ...r, previous: prev.value, commit: last.commit });
+      }
+    }
+  }
+}
+
 let commit = "unknown";
 try {
   commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: here, encoding: "utf8" }).trim();
@@ -83,6 +103,7 @@ const record = {
   machine: { platform: process.platform, arch: process.arch, cpus: cpus().length, cpuModel: cpus()[0]?.model, memGB: Math.round(totalmem() / 2 ** 30) },
   results,
   misses,
+  regressions,
 };
 mkdirSync(join(here, "results"), { recursive: true });
 writeFileSync(join(here, "results", "latest.json"), JSON.stringify(record, null, 2) + "\n");
@@ -92,5 +113,10 @@ if (misses.length) {
   console.log(`\n${misses.length} budget miss(es):`);
   for (const m of misses) console.log(`  ${m.repo} ${m.metric} = ${m.value.toFixed(1)} > ${m.budget} (${m.key})`);
 }
+if (regressions.length) {
+  console.log(`\n${regressions.length} regression(s) over 10% vs ${regressions[0].commit}:`);
+  for (const r of regressions) console.log(`  ${r.repo} ${r.metric} = ${r.value.toFixed(1)} (was ${r.previous.toFixed(1)})`);
+}
 const errors = results.filter((r) => r.metric.endsWith(".error"));
-if ((flag("hard") && misses.length) || errors.length) process.exit(1);
+// From M2 on, budgets and regressions are hard gates in CI (--hard).
+if ((flag("hard") && (misses.length || regressions.length)) || errors.length) process.exit(1);

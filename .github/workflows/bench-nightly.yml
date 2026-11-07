@@ -22,8 +22,8 @@ jobs:
       - run: cargo build --release --manifest-path indexer/Cargo.toml -p compass-indexer
       - name: Clone corpus (pinned commits, shallow)
         run: node bench/clone.mjs linux vscode django
-      - name: Run benchmarks (soft until M2)
-        run: node bench/run.mjs --repos fixtures,django,vscode,linux
+      - name: Run benchmarks (hard gate from M2)
+        run: node bench/run.mjs --hard --repos fixtures,django,vscode,linux
       - uses: actions/upload-artifact@v4
         if: always()
         with:

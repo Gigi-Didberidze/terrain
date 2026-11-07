@@ -343,3 +343,13 @@ fn facts_round_trip() {
     assert_eq!(FileFacts::decode(&f.encode()).unwrap(), f);
     assert_eq!(f.defs[0].kind, NodeKind::Function);
 }
+
+#[test]
+fn tier2_lua_uses_the_grammar_tags_query() {
+    let src = b"local M = {}\nfunction M.render(x)\n  return helper(x)\nend\nlocal function helper(y)\n  return y\nend\nreturn M\n";
+    let f = extract(Lang::Lua, src).unwrap();
+    let names: Vec<&str> = f.defs.iter().map(|d| d.name.as_str()).collect();
+    assert!(names.iter().any(|n| n.ends_with("render")), "{names:?}");
+    assert!(names.contains(&"helper"), "{names:?}");
+    assert!(f.refs.iter().any(|r| r.name == "helper" && r.kind == RefKind::Call));
+}
