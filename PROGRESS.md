@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M6 — Polish and ship (M5 done; M2's linux measurement deferred, see below)
+**Current milestone:** M6 — Polish and ship: done except publishing, which waits for the owner (D49)
 
 ## M0 — Skeleton: done
 - Monorepo: Rust indexer workspace (`core`, `parse`, `git`, `engine`, `rpc`), extension host, webview, shared protocol schema with generated bindings.
@@ -121,8 +121,26 @@ Integration test (real VS Code, TypeScript language server): main()'s Neighbourh
 
 Benchmark note: the regression check compared this run with the last recorded django run on this machine, from M0 (before parsing existed), so it flagged cold index 0.46 → 6.5 s and memory 22 → 143 MB. Those are M2–M4 adding parsing, resolution, analysis and history, not M5; this run is now the baseline.
 
+## M6 — Polish and ship: done, publishing pending (gate below)
+- Accessibility: a live region speaks the selection (kind, name, place, size, connections), lens and view changes and "map ready"; the legend is no longer a chatty live region; search is a combobox with active descendant and a "no matches" row; reduced motion turns camera animations into jumps; keyboard-only operation throughout; the sidebar tree, status bar and state screens carry labels.
+- Contrast: labels meet WCAG AA on every fill under every lens in three themes (D45, D46).
+- State screens with actions; quiet restart after one crash, shown after two (D48).
+- Settings: compass.exclude, compass.history.enabled, compass.map.follow added; watched files obey the same ignore rules as the full walk (D47, fixes build output reaching the map).
+- Walkthrough (three steps, real screenshots in light and dark), Marketplace icon, README with screenshots from django and vscode; the Marketplace README is generated from it (CI checks it is current).
+- Packaging: CI builds VSIX files for win32, linux and darwin on x64 and arm64 with the indexer inside; locally a win32-x64 VSIX is 6.7 MB.
+
+### M6 gate
+| Gate | Result |
+| --- | --- |
+| All budgets pass in CI | M5 CI run green: benchmarks job (hard gate) passed with the new neighbourhood.p99Ms budget |
+| Playwright visual tests pass in three themes | test-visual/themes.mjs: 18/18 contrast pairs, map drawn, accent selection, Neighbourhood and error screen in dark, light and high contrast; runs in CI as "visual tests in three themes" |
+| A fresh user reaches a useful map with zero configuration | Integration test in a clean VS Code profile with only the extension: Open Map shows the workspace, CodeLens, Neighbourhood, review and language-server confirmation work without any setting |
+
+Not done (owner's decision, D49): publishing to the Marketplace and Open VSX (publisher account, final name, public images).
+
 ## Next
-- M6: accessibility pass, designed empty/loading/error states, settings, onboarding walkthrough, Marketplace and Open VSX packaging, README with real screenshots.
+- Publishing, when the owner decides on the name and account.
+- Optional M7 (grounded summaries), only if wanted.
 - Pending: linux measurement with symbols and edges (memory).
 
 ## Open questions

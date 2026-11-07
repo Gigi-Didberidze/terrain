@@ -28,6 +28,7 @@ jobs:
         with: { workspaces: indexer }
       - run: npm ci
       - run: npm run gen:check
+      - run: npm run readme:check
       - run: npm run typecheck
       - run: npm test
       - run: cargo fmt --manifest-path indexer/Cargo.toml --all --check
@@ -123,3 +124,25 @@ jobs:
         with:
           name: bench-results
           path: bench/results/latest.json
+
+  visual:
+    name: visual tests in three themes
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - uses: actions/download-artifact@v4
+        with: { name: indexer-linux-x64, path: bin }
+      - run: chmod +x bin/compass-indexer
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Contrast, rendering and state screens in dark, light and high contrast
+        run: node webview/test-visual/themes.mjs . visual-out --binary bin/compass-indexer
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-screenshots
+          path: visual-out

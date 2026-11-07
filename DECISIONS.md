@@ -178,3 +178,23 @@ Each entry: the decision, the alternatives, the reason.
 ## D44 — Review entry: Ctrl/Cmd+Alt+R and a status bar item once the indexer runs
 - Alternatives: start the indexer at activation so the status bar is always there.
 - Reason: The indexer still starts lazily (activation stays under 20 ms). Compass: Review Changes (Ctrl/Cmd+Alt+R) starts it if needed, waits for the index, refreshes the branch state and shows the changed files by load-bearing score with the Change lens on the map: one keystroke from a fresh checkout to the ranked list, two to open the first file. The status bar item ("Compass: 14 changed · blast 212") appears as soon as anything has started the indexer.
+
+## D45 — Visual tests check readability, not pixels
+- Alternatives: screenshot baselines compared pixel by pixel (Playwright toHaveScreenshot).
+- Reason: Software rendering, font hinting and GPU drivers differ between machines and runners, so pixel baselines either fail on noise or get loose enough to miss real problems. The tests check what makes the map usable, in Dark Modern, Light Modern and Dark High Contrast: every label colour against every fill it can sit on under every lens (WCAG AA 4.5:1; the selection outline 3:1), that the map draws, that the selection uses the theme's accent, that the Neighbourhood and the error screen render and the error screen focuses its first action. Screenshots are uploaded from CI for people to look at. The first run found every lens below 4.5:1 in all three themes (as low as 2.1:1 in dark).
+
+## D46 — Lens colours: labels pick the readable text colour; only mid-tones are pulled
+- Alternatives: pull every lens colour toward the background until the theme's text colour reads (tried first: dark-theme lenses turned muddy navy); white/black text regardless of theme.
+- Reason: Each label takes whichever of the theme's own text and background colours contrasts more with its fill, so vivid fills keep their colour with dark text on them. A fill on which neither reaches 4.5:1 (a mid-tone) is pulled toward the background until the text colour does. Colours still come only from theme tokens.
+
+## D47 — One filter for the full walk and for watched files
+- Alternatives: rely on the extension's watcher exclusions.
+- Reason: Incremental updates added any new file the watcher reported, so a build writing into target/ or dist/ (ignored by .gitignore) put its output on the map. scan::Filter applies the walk's rules to single paths: built-in excluded folders, .gitignore and .ignore at every level (deepest first, re-includes honoured), .git/info/exclude, and the new compass.exclude setting; changes to ignore files invalidate it. Changing compass.exclude or compass.history.enabled restarts the indexer, whose warm start drops what is no longer included.
+
+## D48 — State screens and crash recovery
+- Alternatives: error text in the map panel (as before); a modal notification.
+- Reason: "No folder open", "nothing to map", "indexer missing" and "indexer keeps stopping" each get a title, one line saying why, and the action that fixes it (Open Folder, Restart Indexer, Show Log), rendered with the theme's button tokens and focused for keyboard users. A first crash restarts the indexer quietly (the store makes that cheap); a second within a minute is shown, so a crash loop never hides.
+
+## D49 — Product name: decision left to the owner before publishing
+- Alternatives: keep "Compass — Code Map".
+- Reason: The extension ID (gigi-didberidze.compass-map) is unique, but the Marketplace already lists "Compass", "Code Compass", "Code-Compass" (Nokia Bell Labs) and "Compass Codegraph", a code-graph tool. Unused on both the Marketplace and Open VSX (checked 2026-11-07): "Terrain", "Lay of the Land". Publishing, the publisher account and the name are the owner's call. The Marketplace README loads its images from the GitHub repository, which is private: they will not show until the repository is public or the images are hosted elsewhere.

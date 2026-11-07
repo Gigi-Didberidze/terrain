@@ -11,3 +11,4 @@ bench/corpus/
 .DS_Store
 Thumbs.db
 .vscode-test/
+webview/test-visual/out/
