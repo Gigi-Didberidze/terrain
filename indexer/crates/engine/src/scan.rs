@@ -136,10 +136,17 @@ pub fn scan_file(
         h.update(d.path.as_bytes());
         h.update(&d.size.to_le_bytes());
         h.update(&d.mtime.to_le_bytes());
+        let loc = estimate_loc(d.size);
+        // Large files are the likeliest data files of all: classify them here too.
+        let data = if counts_as_data(&d.path, loc, lang, true) {
+            flags::DATA
+        } else {
+            0
+        };
         return Some(Scanned {
             hash: *h.finalize().as_bytes(),
-            loc: estimate_loc(d.size),
-            flags: flags::TOO_LARGE,
+            loc,
+            flags: flags::TOO_LARGE | data,
             lang,
             content: None,
         });
@@ -256,22 +263,169 @@ const DATA_LINES: u32 = 2000;
 
 /// Data rather than code: tables, logs, datasets, images-as-text. Area on the map is meant to be
 /// code, so these are capped (DECISIONS.md D34).
+/// The data classification used everywhere: known data formats, plus any file over the size
+/// cap whose language Compass does not recognise (it was never read, so its "lines" are only
+/// an estimate from its byte size).
+pub fn counts_as_data(path: &str, loc: u32, lang: Lang, too_large: bool) -> bool {
+    is_data_file(path, loc) || (too_large && lang == Lang::Unknown)
+}
+
 pub fn is_data_file(path: &str, loc: u32) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
     let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
     let always = [
-        "csv", "tsv", "psv", "jsonl", "ndjson", "parquet", "avro", "orc", "feather", "arrow",
-        "log", "dat", "geojson", "topojson", "svg", "pbf", "mtx", "arff", "xls", "xlsx", "ods",
-        "sav", "dta", "rds", "pkl", "npy", "npz", "h5", "hdf5", "db", "sqlite", "sqlite3",
-        "tfrecord", "vcf", "fasta", "fastq", "sam", "gpx", "kml", "srt", "vtt", "po", "pot", "mo",
+        "csv",
+        "tsv",
+        "psv",
+        "jsonl",
+        "ndjson",
+        "parquet",
+        "avro",
+        "orc",
+        "feather",
+        "arrow",
+        "log",
+        "dat",
+        "geojson",
+        "topojson",
+        "svg",
+        "pbf",
+        "mtx",
+        "arff",
+        "xls",
+        "xlsx",
+        "ods",
+        "sav",
+        "dta",
+        "rds",
+        "pkl",
+        "npy",
+        "npz",
+        "h5",
+        "hdf5",
+        "db",
+        "sqlite",
+        "sqlite3",
+        "tfrecord",
+        "vcf",
+        "fasta",
+        "fastq",
+        "sam",
+        "gpx",
+        "kml",
+        "srt",
+        "vtt",
+        "po",
+        "pot",
+        "mo",
+        // Documents, images, media, archives, binaries and model weights: never code.
+        "pdf",
+        "doc",
+        "docx",
+        "ppt",
+        "pptx",
+        "key",
+        "pages",
+        "numbers",
+        "rtf",
+        "epub",
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "webp",
+        "bmp",
+        "ico",
+        "icns",
+        "tif",
+        "tiff",
+        "psd",
+        "ai",
+        "eps",
+        "heic",
+        "mp3",
+        "mp4",
+        "m4a",
+        "mov",
+        "avi",
+        "mkv",
+        "wav",
+        "flac",
+        "ogg",
+        "webm",
+        "zip",
+        "gz",
+        "tgz",
+        "bz2",
+        "xz",
+        "7z",
+        "rar",
+        "tar",
+        "zst",
+        "jar",
+        "war",
+        "whl",
+        "egg",
+        "so",
+        "dll",
+        "dylib",
+        "exe",
+        "bin",
+        "o",
+        "a",
+        "lib",
+        "class",
+        "pyc",
+        "wasm",
+        "woff",
+        "woff2",
+        "ttf",
+        "otf",
+        "eot",
+        "onnx",
+        "pt",
+        "pth",
+        "ckpt",
+        "safetensors",
+        "pb",
+        "tflite",
+        "joblib",
+        "model",
+        "gguf",
+        "eml",
+        "msg",
+        "mbox",
+        "ics",
+        "vcard",
     ];
     if always.contains(&ext) {
+        return true;
+    }
+    // Lock files: generated manifests, not code anyone writes.
+    if matches!(
+        name.as_str(),
+        "package-lock.json"
+            | "yarn.lock"
+            | "pnpm-lock.yaml"
+            | "poetry.lock"
+            | "uv.lock"
+            | "pipfile.lock"
+            | "cargo.lock"
+            | "go.sum"
+            | "gemfile.lock"
+            | "composer.lock"
+            | "pubspec.lock"
+            | "mix.lock"
+            | "flake.lock"
+            | "bun.lockb"
+    ) {
         return true;
     }
     // Text formats that are config when small and data when large.
     matches!(
         ext,
-        "json" | "xml" | "txt" | "yaml" | "yml" | "sql" | "toml" | "ini" | "properties"
+        // Notebooks too: saved outputs inflate their line count far beyond the code.
+        "json" | "xml" | "txt" | "yaml" | "yml" | "sql" | "toml" | "ini" | "properties" | "ipynb"
     ) && loc > DATA_LINES
 }
 
@@ -313,6 +467,40 @@ mod tests {
         assert!(is_generated("app.min.js", b"x"));
         assert!(!is_generated("src/app.js", b"export const a = 1;\n"));
         assert!(is_generated("big.js", &[b'x'; 5000]));
+    }
+
+    #[test]
+    fn files_over_the_size_cap_are_classified_too() {
+        // Regression: a 16 MB CSV took the size-cap shortcut and skipped classification.
+        let dir = tempfile::tempdir().unwrap();
+        let d = Discovered {
+            path: "data/geo_features.csv".into(),
+            size: 16 * 1024 * 1024,
+            mtime: 1,
+        };
+        let s = scan_file(dir.path(), &d, DEFAULT_SIZE_CAP, false).unwrap();
+        assert!(s.flags & flags::DATA != 0 && s.flags & flags::TOO_LARGE != 0);
+        // A large PDF is never read; it must not be sized by its byte count.
+        let pdf = Discovered {
+            path: "reports/analysis.pdf".into(),
+            size: 2 * 1024 * 1024,
+            mtime: 1,
+        };
+        assert!(
+            scan_file(dir.path(), &pdf, DEFAULT_SIZE_CAP, false)
+                .unwrap()
+                .flags
+                & flags::DATA
+                != 0
+        );
+        assert!(counts_as_data(
+            "blobs/unknown.xyz",
+            50_000,
+            Lang::Unknown,
+            true
+        ));
+        assert!(!counts_as_data("src/huge.py", 50_000, Lang::Python, true));
+        assert!(is_data_file("poetry.lock", 10));
     }
 
     #[test]

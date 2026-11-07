@@ -169,9 +169,20 @@ impl Engine {
     /// Adds or updates a file. `index` adds it to search right away; the warm start skips that
     /// and indexes everything in one parallel pass after the map is up.
     fn put_file(&mut self, row: &FileRow, index: bool) {
+        // Derived from path and size on every insert, so an index stored by an older version
+        // picks up the classification without re-reading unchanged files.
+        let mut file_flags = row.flags & !flags::DATA;
+        if scan::counts_as_data(
+            &row.path,
+            row.loc,
+            row.lang,
+            row.flags & flags::TOO_LARGE != 0,
+        ) {
+            file_flags |= flags::DATA;
+        }
         let slot = self
             .graph
-            .upsert_file(&row.path, row.loc, row.lang, row.flags) as usize;
+            .upsert_file(&row.path, row.loc, row.lang, file_flags) as usize;
         self.sem.files.add(&row.path);
         if self.meta.len() <= slot {
             self.meta.resize(slot + 1, FileMeta::default());
