@@ -43,6 +43,34 @@ pub struct Mined {
     pub replace: bool,
 }
 
+/// What the current branch changed relative to its base.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Changes {
+    /// Short name of the base branch ("origin/main"), when one was found.
+    pub base_name: Option<String>,
+    /// Merge base of HEAD and the base branch.
+    pub base: Option<String>,
+    /// Changed in commits since the merge base.
+    pub committed: Vec<String>,
+    /// Staged, modified or untracked in the working tree.
+    pub uncommitted: Vec<String>,
+}
+
+impl Changes {
+    /// Every changed path once, sorted.
+    pub fn all(&self) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .committed
+            .iter()
+            .chain(&self.uncommitted)
+            .cloned()
+            .collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+}
+
 fn rel_prefix(workdir: &Path, workspace: &Path) -> String {
     let w = dunce(workspace);
     let r = dunce(workdir);
@@ -216,6 +244,82 @@ impl Repo {
         Ok(files)
     }
 
+    /// The branch the current work will merge into: origin's default branch, else main or
+    /// master (remote first, then local). Returns (short name, commit id).
+    pub fn base_branch(&self) -> Option<(String, gix::ObjectId)> {
+        let repo = self.repo.to_thread_local();
+        let mut names: Vec<String> = Vec::new();
+        if let Ok(Some(r)) = repo.try_find_reference("refs/remotes/origin/HEAD") {
+            if let Some(target) = r.target().try_name() {
+                names.push(target.as_bstr().to_str_lossy().into_owned());
+            }
+        }
+        for n in [
+            "refs/remotes/origin/main",
+            "refs/remotes/origin/master",
+            "refs/heads/main",
+            "refs/heads/master",
+        ] {
+            names.push(n.to_string());
+        }
+        for n in names {
+            if let Ok(Some(mut r)) = repo.try_find_reference(n.as_str()) {
+                if let Ok(id) = r.peel_to_id() {
+                    let short = n
+                        .trim_start_matches("refs/remotes/")
+                        .trim_start_matches("refs/heads/")
+                        .to_string();
+                    return Some((short, id.detach()));
+                }
+            }
+        }
+        None
+    }
+
+    /// Files changed on this branch since it left its base, plus uncommitted and untracked
+    /// changes, as workspace paths (sorted). Deleted files are included; callers filter.
+    pub fn changes(&self) -> Result<Changes> {
+        let repo = self.repo.to_thread_local();
+        let mut out = Changes::default();
+        let head = repo.head_id().ok().map(|h| h.detach());
+        if let (Some(head), Some((name, base))) = (head, self.base_branch()) {
+            out.base_name = Some(name);
+            if let Ok(Some(mb)) = repo.merge_base(base, head) {
+                let mb = mb.detach();
+                out.base = Some(mb.to_string());
+                if mb != head {
+                    let old = repo.find_commit(mb)?.tree()?;
+                    let new = repo.find_commit(head)?.tree()?;
+                    let mut opts = gix::diff::Options::default().with_rewrites(None);
+                    opts.track_path();
+                    for c in repo.diff_tree_to_tree(Some(&old), &new, Some(opts))? {
+                        if matches!(c.entry_mode().kind(), gix::object::tree::EntryKind::Tree) {
+                            continue;
+                        }
+                        if let Some(p) = self.to_workspace(&c.location().to_str_lossy()) {
+                            out.committed.push(p);
+                        }
+                    }
+                }
+            }
+        }
+        let status = repo
+            .status(gix::progress::Discard)?
+            .untracked_files(gix::status::UntrackedFiles::Files)
+            .index_worktree_rewrites(None);
+        for item in status.into_iter(None)? {
+            let item = item?;
+            if let Some(p) = self.to_workspace(&item.location().to_str_lossy()) {
+                out.uncommitted.push(p);
+            }
+        }
+        out.committed.sort();
+        out.committed.dedup();
+        out.uncommitted.sort();
+        out.uncommitted.dedup();
+        Ok(out)
+    }
+
     /// Lines per author for one workspace file at HEAD (blame), largest first.
     pub fn blame(
         &self,
@@ -360,6 +464,53 @@ mod tests {
         let repo = Repo::open(dir.path()).unwrap();
         let owners = repo.blame("src/a.rs", &|_| None).unwrap();
         assert_eq!(owners, vec![("a@example.com".to_string(), 1)]);
+    }
+
+    #[test]
+    fn branch_changes_cover_commits_since_base_and_the_working_tree() {
+        let Some(dir) = repo_with_history() else {
+            return;
+        };
+        let p = dir.path();
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(p)
+                .output()
+                .unwrap()
+        };
+        let repo = Repo::open(p).unwrap();
+        // On main itself: nothing committed on a branch, nothing uncommitted.
+        let c = repo.changes().unwrap();
+        assert_eq!(c.base_name.as_deref(), Some("main"));
+        assert!(c.all().is_empty(), "{c:?}");
+        git(&["checkout", "-q", "-b", "feature"]);
+        std::fs::write(
+            p.join("src/b.rs"),
+            "fn b() { 1 }
+",
+        )
+        .unwrap();
+        git(&["commit", "-q", "-am", "feature work"]);
+        std::fs::write(
+            p.join("src/a.rs"),
+            "fn a() { b(); b() }
+",
+        )
+        .unwrap();
+        std::fs::write(
+            p.join("src/new.rs"),
+            "fn n() {}
+",
+        )
+        .unwrap();
+        let c = repo.changes().unwrap();
+        assert_eq!(c.committed, vec!["src/b.rs".to_string()]);
+        assert_eq!(
+            c.uncommitted,
+            vec!["src/a.rs".to_string(), "src/new.rs".to_string()]
+        );
+        assert_eq!(c.all().len(), 3);
     }
 
     #[test]

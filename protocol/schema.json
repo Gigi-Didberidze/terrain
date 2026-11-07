@@ -1,6 +1,6 @@
 {
   "$comment": "Single source of truth for the indexer <-> extension protocol. Run `node protocol/gen.mjs` after editing. Field names are camelCase; Rust fields are generated in snake_case with serde renames. Types: string, bool, u32, u64, f64, bytes (base64 string), Name (struct or enum), T[] (array), and a trailing ? on a field name marks it optional.",
-  "version": 6,
+  "version": 8,
   "enums": {
     "IndexPhase": [
       "discover",
@@ -314,6 +314,72 @@
     },
     "RefreshResult": {
       "changed": "bool"
+    },
+    "NbNode": {
+      "node": "NodeRef",
+      "column": "u32",
+      "load": "f64",
+      "inCount": "u32",
+      "outCount": "u32"
+    },
+    "NbEdge": {
+      "from": "u32",
+      "to": "u32",
+      "kind": "EdgeKind",
+      "confidence": "Confidence",
+      "count": "u32"
+    },
+    "NeighbourhoodResult": {
+      "centre": "u32",
+      "nodes": "NbNode[]",
+      "edges": "NbEdge[]",
+      "dependents": "u32",
+      "dependencies": "u32",
+      "millis": "f64"
+    },
+    "BetweenParams": {
+      "from": "u32",
+      "to": "u32"
+    },
+    "PathView": {
+      "nodes": "NodeRef[]"
+    },
+    "PathResult": {
+      "from": "NodeRef",
+      "to": "NodeRef",
+      "paths": "PathView[]",
+      "reversed": "bool"
+    },
+    "ReviewItem": {
+      "node": "NodeRef",
+      "load": "f64",
+      "blastCount": "u32",
+      "committed": "bool"
+    },
+    "ReviewResult": {
+      "available": "bool",
+      "baseName?": "string",
+      "base?": "string",
+      "changed": "ReviewItem[]",
+      "changedTotal": "u32",
+      "pathsTotal": "u32",
+      "blast": "NodeRef[]",
+      "blastTotal": "u32",
+      "millis": "f64"
+    },
+    "SourceLocation": {
+      "path": "string",
+      "line": "u32"
+    },
+    "ConfirmParams": {
+      "slot": "u32",
+      "callers": "SourceLocation[]",
+      "callees": "SourceLocation[]"
+    },
+    "ConfirmResult": {
+      "confirmed": "u32",
+      "rejected": "u32",
+      "unmatched": "u32"
     }
   },
   "requests": {
@@ -408,6 +474,26 @@
     "analysis/misplaced": {
       "params": "LimitParams",
       "result": "MisplacedResult"
+    },
+    "view/neighbourhood": {
+      "params": "SlotParams",
+      "result": "NeighbourhoodResult"
+    },
+    "view/path": {
+      "params": "BetweenParams",
+      "result": "PathResult"
+    },
+    "review/summary": {
+      "params": "LimitParams",
+      "result": "ReviewResult"
+    },
+    "review/refresh": {
+      "params": null,
+      "result": "RefreshResult"
+    },
+    "edges/confirm": {
+      "params": "ConfirmParams",
+      "result": "ConfirmResult"
     }
   },
   "notifications": {

@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum IndexPhase {
@@ -505,6 +505,107 @@ pub struct RefreshResult {
     pub changed: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NbNode {
+    pub node: NodeRef,
+    pub column: u32,
+    pub load: f64,
+    pub in_count: u32,
+    pub out_count: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NbEdge {
+    pub from: u32,
+    pub to: u32,
+    pub kind: EdgeKind,
+    pub confidence: Confidence,
+    pub count: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighbourhoodResult {
+    pub centre: u32,
+    pub nodes: Vec<NbNode>,
+    pub edges: Vec<NbEdge>,
+    pub dependents: u32,
+    pub dependencies: u32,
+    pub millis: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BetweenParams {
+    pub from: u32,
+    pub to: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathView {
+    pub nodes: Vec<NodeRef>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathResult {
+    pub from: NodeRef,
+    pub to: NodeRef,
+    pub paths: Vec<PathView>,
+    pub reversed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewItem {
+    pub node: NodeRef,
+    pub load: f64,
+    pub blast_count: u32,
+    pub committed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewResult {
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    pub changed: Vec<ReviewItem>,
+    pub changed_total: u32,
+    pub paths_total: u32,
+    pub blast: Vec<NodeRef>,
+    pub blast_total: u32,
+    pub millis: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceLocation {
+    pub path: String,
+    pub line: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmParams {
+    pub slot: u32,
+    pub callers: Vec<SourceLocation>,
+    pub callees: Vec<SourceLocation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmResult {
+    pub confirmed: u32,
+    pub rejected: u32,
+    pub unmatched: u32,
+}
+
 pub mod method {
     pub const INITIALIZE: &str = "initialize";
     pub const PING: &str = "ping";
@@ -529,6 +630,11 @@ pub mod method {
     pub const HISTORY_HIDDEN: &str = "history/hidden";
     pub const HISTORY_REFRESH: &str = "history/refresh";
     pub const ANALYSIS_MISPLACED: &str = "analysis/misplaced";
+    pub const VIEW_NEIGHBOURHOOD: &str = "view/neighbourhood";
+    pub const VIEW_PATH: &str = "view/path";
+    pub const REVIEW_SUMMARY: &str = "review/summary";
+    pub const REVIEW_REFRESH: &str = "review/refresh";
+    pub const EDGES_CONFIRM: &str = "edges/confirm";
 }
 
 pub mod notification {

@@ -2,13 +2,16 @@
 //! and the queries every view runs against the graph.
 
 pub mod analysis;
+pub mod confirm;
 pub mod context;
 pub mod history;
 pub mod imports;
 pub mod project;
 pub mod resolve;
+pub mod review;
 pub mod scan;
 pub mod search;
+pub mod views;
 
 use compass_core::layout::Layout;
 use compass_core::model::*;
@@ -101,6 +104,8 @@ pub struct Engine {
     pub history: Arc<history::History>,
     /// Mined commits and the repository; one mining run at a time.
     git: Arc<Mutex<GitState>>,
+    /// What the current branch changed and its blast radius (Change lens, review list).
+    pub review: Arc<review::Review>,
 }
 
 /// Commits mined so far (newest first) and the head they reach.
@@ -176,6 +181,7 @@ impl Engine {
             complexity_cache: Mutex::new(std::collections::HashMap::new()),
             history: Arc::new(history::History::default()),
             git: Arc::new(Mutex::new(GitState::default())),
+            review: Arc::new(review::Review::default()),
         }
     }
 
@@ -271,6 +277,7 @@ impl Engine {
             self.search.remove(s);
         }
         let is_test = self.graph.node(file).flags & flags::TEST != 0;
+        self.forget_confirmations(file);
         let changed = self.sem.set_facts(&mut self.graph, file, facts, is_test);
         let path = self.graph.path(file).unwrap_or("").to_string();
         for s in self.graph.file_symbols(file) {
@@ -346,16 +353,34 @@ impl Engine {
             let items = tiles::query(&self.graph, layout, z, x, y, tiles::TILE_ITEM_LIMIT);
             let a = &self.analysis;
             let h = &self.history;
+            let r = &self.review;
             tiles::pack(&self.graph, layout, z, x, y, &items, |slot| {
                 let path = self.file_path_of(slot).unwrap_or("");
+                let file = self.file_of(slot);
+                let change = match file {
+                    Some(f) if r.is_changed(f) => tiles::FLAG_CHANGED,
+                    Some(f) if r.in_blast(f) => tiles::FLAG_BLAST,
+                    _ => 0,
+                };
                 LensValues {
                     community: a.colour_of(slot),
                     load: a.load_of(slot),
                     owner: h.owner_lens(path),
                     churn: h.churn_lens(path),
+                    change,
                 }
             })
         })
+    }
+
+    /// The file slot a node belongs to (itself for files); None for directories.
+    pub fn file_of(&self, slot: u32) -> Option<u32> {
+        let n = self.graph.get(slot)?;
+        match n.kind {
+            NodeKind::Dir => None,
+            NodeKind::File => Some(slot),
+            _ => Some(n.file),
+        }
     }
 
     /// The file a node belongs to (itself for files), as a path; None for directories.
@@ -797,6 +822,7 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
     // History: mine git (incrementally after the first run), then re-cluster with co-change.
     set_phase(shared, Phase::History);
     run_history(shared, events);
+    run_review(shared, events);
     if trace {
         let a = shared.read().analysis.clone();
         eprintln!(
@@ -945,12 +971,62 @@ pub fn run_analysis(shared: &Shared, events: &dyn Events) {
         cochange.sort_by_key(|&(a, b, _)| (a, b));
         analysis::analyse(&e.graph, &cochange)
     };
+    let review = {
+        let e = shared.read();
+        e.review.rebuild(&e.graph, &a)
+    };
     let mut e = shared.write();
     e.analysis = Arc::new(a);
+    e.review = Arc::new(review);
     let epoch = e.graph.epoch;
     drop(e);
     // Lens colours changed: tiles must be refetched (geometry did not move).
     events.changed(epoch, false);
+}
+
+/// Re-reads what the current branch changed (git status plus commits since the base) and
+/// installs it. Returns true when the set of changed paths moved; then tiles are refetched.
+pub fn run_review(shared: &Shared, events: &dyn Events) -> bool {
+    let git = shared.read().git.clone();
+    let changes = {
+        let mut git = git.lock();
+        if !git.opened {
+            git.opened = true;
+            git.repo = compass_git::Repo::open(&shared.read().root);
+        }
+        let Some(repo) = &git.repo else { return false };
+        match repo.changes() {
+            Ok(c) => c,
+            Err(err) => {
+                eprintln!("branch changes failed: {err}");
+                return false;
+            }
+        }
+    };
+    let review = {
+        let e = shared.read();
+        let committed: HashSet<String> = changes.committed.iter().cloned().collect();
+        let same = e.review.paths == changes.all()
+            && e.review.base == changes.base
+            && e.review.committed == committed;
+        if same {
+            return false;
+        }
+        review::Review::build(
+            &e.graph,
+            &e.analysis,
+            changes.base_name,
+            changes.base,
+            changes.committed,
+            changes.uncommitted,
+        )
+    };
+    let mut e = shared.write();
+    e.review = Arc::new(review);
+    let epoch = e.graph.epoch;
+    drop(e);
+    events.changed(epoch, false);
+    true
 }
 
 /// Brings git history up to date (everything on the first run, new commits afterwards) and
@@ -1092,6 +1168,7 @@ pub fn schedule_analysis(shared: &Shared, events: &dyn Events) {
         std::thread::sleep(std::time::Duration::from_millis(500));
         if counter.load(std::sync::atomic::Ordering::SeqCst) == gen {
             run_analysis(&shared, &*events);
+            run_review(&shared, &*events);
         }
     });
 }

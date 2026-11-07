@@ -32,6 +32,8 @@ pub struct Semantic {
     pub imports_of: HashMap<u32, Vec<u32>>,
     /// Import specifiers that resolved to nothing in the workspace, per file (external or missing).
     pub unresolved: HashMap<u32, u32>,
+    /// Name-matched calls the language server contradicted, per calling file: (from, to) ids.
+    pub rejected: HashMap<u32, HashSet<(NodeId, NodeId)>>,
 }
 
 /// Edges computed for one file, applied later under the write lock.
@@ -357,8 +359,14 @@ impl Semantic {
         // Everything resolution produced (dependencies and Rust module containment).
         let pred = |e: &EdgeRec| e.conf == Confidence::Syntactic && e.kind != EdgeKind::Cochanges;
         g.clear_file_out_edges(fe.file, pred);
+        let rejected = self.rejected.get(&fe.file);
         for (s, d, k, w) in fe.edges {
             if g.get(s).is_some() && g.get(d).is_some() {
+                if k == EdgeKind::Calls
+                    && rejected.is_some_and(|r| r.contains(&(g.node(s).id, g.node(d).id)))
+                {
+                    continue;
+                }
                 g.add_edge(s, d, k, Confidence::Syntactic, w);
             }
         }

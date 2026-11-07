@@ -259,6 +259,7 @@ pub mod flags {
     pub const TOO_LARGE: u16 = 1 << 6;
     /// Data rather than code (CSV, logs, large JSON, ...): area capped unless configured.
     pub const DATA: u16 = 1 << 7;
+    // Bits 14 and 15 are reserved for tile-only flags (tiles::FLAG_CHANGED, FLAG_BLAST).
 }
 
 pub const NONE: u32 = u32::MAX;

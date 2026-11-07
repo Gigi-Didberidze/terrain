@@ -267,6 +267,139 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
                 .collect();
             to_value(p::LensesResult { lenses })
         }
+        method::EDGES_CONFIRM => {
+            let cp: p::ConfirmParams = parse_params(params)?;
+            let mut unmatched = 0u32;
+            let r = {
+                let mut e = s.write();
+                // Each location is a call site's enclosing symbol (callers) or a definition
+                // (callees); it must land on a symbol of the map.
+                let mut locate = |l: &p::SourceLocation| {
+                    let slot = e
+                        .locate(&l.path, Some(l.line))
+                        .filter(|&x| e.graph.node(x).kind.is_symbol());
+                    if slot.is_none() {
+                        unmatched += 1;
+                    }
+                    slot
+                };
+                let callers: Vec<u32> = cp.callers.iter().filter_map(&mut locate).collect();
+                let callees: Vec<u32> = cp.callees.iter().filter_map(&mut locate).collect();
+                e.confirm_calls(cp.slot, &callers, &callees)
+            };
+            if r.confirmed + r.rejected > 0 {
+                let events = RpcEvents(outbox.clone());
+                let epoch = s.read().graph.epoch;
+                events.changed(epoch, false);
+                compass_engine::schedule_analysis(s, &events);
+            }
+            to_value(p::ConfirmResult {
+                confirmed: r.confirmed,
+                rejected: r.rejected,
+                unmatched,
+            })
+        }
+        method::VIEW_NEIGHBOURHOOD => {
+            let sp: p::SlotParams = parse_params(params)?;
+            let e = s.read();
+            if e.graph.get(sp.slot).is_none() {
+                return Err(RpcError::invalid_params("no such node"));
+            }
+            let nb = e.neighbourhood(sp.slot);
+            let nodes = nb
+                .nodes
+                .iter()
+                .map(|n| {
+                    let (in_count, out_count) = e.edge_counts(n.slot);
+                    p::NbNode {
+                        node: node_ref(e.node_ref(n.slot)),
+                        column: (n.level + 2) as u32,
+                        load: e.analysis.load_of(n.slot) as f64 / 65535.0,
+                        in_count,
+                        out_count,
+                    }
+                })
+                .collect();
+            let edges = nb
+                .edges
+                .iter()
+                .map(|x| p::NbEdge {
+                    from: x.from,
+                    to: x.to,
+                    kind: edge_kind_dto(x.kind),
+                    confidence: confidence_dto(x.conf),
+                    count: x.count,
+                })
+                .collect();
+            to_value(p::NeighbourhoodResult {
+                centre: sp.slot,
+                nodes,
+                edges,
+                dependents: nb.dependents,
+                dependencies: nb.dependencies,
+                millis: nb.millis,
+            })
+        }
+        method::VIEW_PATH => {
+            let bp: p::BetweenParams = parse_params(params)?;
+            let e = s.read();
+            if e.graph.get(bp.from).is_none() || e.graph.get(bp.to).is_none() {
+                return Err(RpcError::invalid_params("no such node"));
+            }
+            let r = e.paths(bp.from, bp.to, 3);
+            to_value(p::PathResult {
+                from: node_ref(e.node_ref(r.from)),
+                to: node_ref(e.node_ref(r.to)),
+                paths: r
+                    .paths
+                    .iter()
+                    .map(|path| p::PathView {
+                        nodes: path.iter().map(|&n| node_ref(e.node_ref(n))).collect(),
+                    })
+                    .collect(),
+                reversed: r.reversed,
+            })
+        }
+        method::REVIEW_SUMMARY => {
+            let lp: p::LimitParams = parse_params(params)?;
+            let e = s.read();
+            let r = e.review.clone();
+            let limit = lp.limit.min(5000) as usize;
+            let changed = r
+                .changed
+                .iter()
+                .take(limit)
+                .map(|&f| {
+                    let path = e.graph.path(f).unwrap_or("");
+                    p::ReviewItem {
+                        node: node_ref(e.node_ref(f)),
+                        load: e.analysis.load_of(f) as f64 / 65535.0,
+                        blast_count: e.blast_files(f).len() as u32,
+                        committed: r.committed.contains(path),
+                    }
+                })
+                .collect();
+            to_value(p::ReviewResult {
+                available: r.base_name.is_some() || !r.paths.is_empty(),
+                base_name: r.base_name.clone(),
+                base: r.base.clone(),
+                changed,
+                changed_total: r.changed.len() as u32,
+                paths_total: r.paths.len() as u32,
+                blast: r
+                    .blast
+                    .iter()
+                    .take(limit)
+                    .map(|&f| node_ref(e.node_ref(f)))
+                    .collect(),
+                blast_total: r.blast.len() as u32,
+                millis: r.millis,
+            })
+        }
+        method::REVIEW_REFRESH => {
+            let changed = compass_engine::run_review(s, &RpcEvents(outbox.clone()));
+            to_value(p::RefreshResult { changed })
+        }
         method::HISTORY_SUMMARY => {
             let e = s.read();
             let h = e.history.clone();
@@ -335,7 +468,10 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
             })
         }
         method::HISTORY_REFRESH => {
-            let changed = compass_engine::run_history(s, &RpcEvents(outbox.clone()));
+            let events = RpcEvents(outbox.clone());
+            let changed = compass_engine::run_history(s, &events);
+            // A commit moves files from uncommitted to committed; a checkout changes the base.
+            compass_engine::run_review(s, &events);
             to_value(p::RefreshResult { changed })
         }
         method::ANALYSIS_MISPLACED => {

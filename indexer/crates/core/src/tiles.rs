@@ -7,7 +7,7 @@
 //!   items  (40 B each):
 //!     f32 x, y, w, h     position relative to the tile origin, in tile units
 //!     u32 slot           node handle
-//!     u8  kind, u8 depth, u16 flags
+//!     u8  kind, u8 depth, u16 flags   node flags; bits 14-15 are tile-only (Change lens)
 //!     u32 hidden         files too small to draw at this zoom (aggregated into the parent)
 //!     u32 label_off, u16 label_len   UTF-8 label in the string table
 //!     u8  community, u8 owner, u16 load, u16 churn   lens values (0 = unknown / none)
@@ -31,6 +31,11 @@ pub const MAX_ZOOM: u32 = 22;
 /// Items per tile. About 12–20 tiles cover a viewport, keeping the webview near 50k items.
 pub const TILE_ITEM_LIMIT: usize = 4096;
 
+/// Tile-only flag: changed on the current branch (Change lens).
+pub const FLAG_CHANGED: u16 = 1 << 14;
+/// Tile-only flag: depends on something changed on the current branch (blast radius).
+pub const FLAG_BLAST: u16 = 1 << 15;
+
 /// Per-node lens values packed into each item.
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct LensValues {
@@ -38,6 +43,8 @@ pub struct LensValues {
     pub owner: u8,
     pub load: u16,
     pub churn: u16,
+    /// FLAG_CHANGED / FLAG_BLAST, or 0.
+    pub change: u16,
 }
 
 #[derive(Clone, Debug)]
@@ -251,14 +258,16 @@ pub fn pack(
         buf.extend_from_slice(&it.slot.to_le_bytes());
         buf.push(it.kind as u8);
         buf.push(it.depth);
-        buf.extend_from_slice(&it.flags.to_le_bytes());
+        let l = lens(it.slot);
+        let flags =
+            (it.flags & !(FLAG_CHANGED | FLAG_BLAST)) | (l.change & (FLAG_CHANGED | FLAG_BLAST));
+        buf.extend_from_slice(&flags.to_le_bytes());
         buf.extend_from_slice(&it.hidden.to_le_bytes());
         let label = layout.label(g, it.slot);
         let label = &label.as_bytes()[..label.len().min(u16::MAX as usize)];
         buf.extend_from_slice(&(strings.len() as u32).to_le_bytes());
         buf.extend_from_slice(&(label.len() as u16).to_le_bytes());
         strings.extend_from_slice(label);
-        let l = lens(it.slot);
         buf.push(l.community);
         buf.push(l.owner);
         buf.extend_from_slice(&l.load.to_le_bytes());
