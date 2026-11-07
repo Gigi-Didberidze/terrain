@@ -44,6 +44,10 @@ struct RawDef {
     start_line: u32,
     end_line: u32,
     exported: bool,
+    /// Type a method belongs to without being nested in it (Go receiver).
+    owner: Option<String>,
+    /// A Rust `impl` block: merged into the type of the same name when the file defines it.
+    impl_block: bool,
 }
 
 /// Lower is more specific; used when one node matches several definition patterns.
@@ -94,30 +98,74 @@ fn line(n: Node) -> u32 {
     n.start_position().row as u32 + 1
 }
 
-fn names(q: &Query) -> Vec<&str> {
-    q.capture_names().to_vec()
+/// One query match: (capture name, node) pairs.
+type Match<'q, 't> = Vec<(&'q str, Node<'t>)>;
+
+fn collect<'q, 't>(q: &'q Query, root: Node<'t>, src: &[u8]) -> Vec<(usize, Match<'q, 't>)> {
+    let names = q.capture_names();
+    let mut cursor = QueryCursor::new();
+    let mut out = Vec::new();
+    let mut matches = cursor.matches(q, root, src);
+    while let Some(m) = matches.next() {
+        out.push((
+            m.pattern_index,
+            m.captures()
+                .iter()
+                .map(|c| (names[c.index as usize], c.node))
+                .collect(),
+        ));
+    }
+    out
+}
+
+/// Matches per section (defs, refs, imports, entries): one combined walk when available.
+fn sections<'q, 't>(spec: &'q Spec, root: Node<'t>, src: &[u8]) -> [Vec<Match<'q, 't>>; 4] {
+    let mut out: [Vec<Match>; 4] = Default::default();
+    if let Some((q, bounds)) = &spec.combined {
+        for (pattern, m) in collect(q, root, src) {
+            let section = (0..4).find(|&i| pattern < bounds[i + 1]).unwrap_or(3);
+            out[section].push(m);
+        }
+        return out;
+    }
+    let qs = [
+        Some(&spec.defs),
+        Some(&spec.refs),
+        spec.imports.as_ref(),
+        spec.entries.as_ref(),
+    ];
+    for (i, q) in qs.into_iter().enumerate() {
+        if let Some(q) = q {
+            out[i] = collect(q, root, src).into_iter().map(|(_, m)| m).collect();
+        }
+    }
+    out
 }
 
 pub fn extract_tree(spec: &Spec, tree: &Tree, src: &[u8]) -> FileFacts {
     let root = tree.root_node();
     let mut facts = FileFacts::default();
-    let mut cursor = QueryCursor::new();
+    let [def_matches, ref_matches, import_matches, entry_matches] = sections(spec, root, src);
 
     // ---- definitions
-    let cap = names(&spec.defs);
     let mut raw: Vec<RawDef> = Vec::new();
-    let mut matches = cursor.matches(&spec.defs, root, src);
-    while let Some(m) = matches.next() {
+    for m in &def_matches {
         let mut def: Option<(NodeKind, Node)> = None;
         let mut name: Option<Node> = None;
-        for c in m.captures() {
-            let cn = cap[c.index as usize];
+        let mut owner: Option<String> = None;
+        let mut impl_block = false;
+        for &(cn, node) in m {
             if cn == "name" {
-                name = Some(c.node);
+                name = Some(node);
+            } else if cn == "owner" {
+                owner = Some(text(node, src).to_string());
+            } else if cn == "def.impl" {
+                def = Some((NodeKind::Class, node));
+                impl_block = true;
             } else if cn == "namespace" {
-                facts.namespaces.push(text(c.node, src).to_string());
+                facts.namespaces.push(text(node, src).to_string());
             } else if let Some(k) = def_kind(cn) {
-                def = Some((k, c.node));
+                def = Some((k, node));
             }
         }
         let (Some((kind, node)), Some(name)) = (def, name) else {
@@ -136,6 +184,8 @@ pub fn extract_tree(spec: &Spec, tree: &Tree, src: &[u8]) -> FileFacts {
             start_line: line(node),
             end_line: node.end_position().row as u32 + 1,
             exported: exported(spec.lang, node, name_s, src),
+            owner,
+            impl_block,
         });
     }
     // Same node matched by several patterns: keep the most specific kind.
@@ -146,7 +196,13 @@ pub fn extract_tree(spec: &Spec, tree: &Tree, src: &[u8]) -> FileFacts {
             .then(a.name_start.cmp(&b.name_start))
             .then(kind_rank(a.kind).cmp(&kind_rank(b.kind)))
     });
-    raw.dedup_by(|b, a| a.start == b.start && a.end == b.end && a.name_start == b.name_start);
+    raw.dedup_by(|b, a| {
+        let same = a.start == b.start && a.end == b.end && a.name_start == b.name_start;
+        if same && a.owner.is_none() {
+            a.owner = b.owner.take();
+        }
+        same
+    });
 
     // Nesting by containment.
     let mut stack: Vec<usize> = Vec::new();
@@ -208,21 +264,18 @@ pub fn extract_tree(spec: &Spec, tree: &Tree, src: &[u8]) -> FileFacts {
     };
 
     // ---- references
-    let cap = names(&spec.refs);
-    let mut matches = cursor.matches(&spec.refs, root, src);
     let mut seen = std::collections::HashSet::new();
     let mut ref_pos: Vec<usize> = Vec::new();
-    while let Some(m) = matches.next() {
+    for m in &ref_matches {
         let mut kind: Option<RefKind> = None;
         let mut target: Option<Node> = None;
         let mut tagged_name: Option<Node> = None;
-        for c in m.captures() {
-            let cn = cap[c.index as usize];
+        for &(cn, node) in m {
             if cn == "name" {
-                tagged_name = Some(c.node);
+                tagged_name = Some(node);
             } else if let Some(k) = ref_kind(cn) {
                 kind = Some(k);
-                target = Some(c.node);
+                target = Some(node);
             }
         }
         let Some(kind) = kind else { continue };
@@ -268,21 +321,19 @@ pub fn extract_tree(spec: &Spec, tree: &Tree, src: &[u8]) -> FileFacts {
     }
 
     // ---- imports
-    if let Some(q) = &spec.imports {
-        let cap = names(q);
-        let mut matches = cursor.matches(q, root, src);
-        while let Some(m) = matches.next() {
+    {
+        for m in &import_matches {
             let mut path: Option<Node> = None;
             let mut is_mod = false;
             let mut imported = Vec::new();
-            for c in m.captures() {
-                match cap[c.index as usize] {
-                    "import" => path = Some(c.node),
+            for &(cn, node) in m {
+                match cn {
+                    "import" => path = Some(node),
                     "import.mod" => {
-                        path = Some(c.node);
+                        path = Some(node);
                         is_mod = true;
                     }
-                    "import.name" => imported.push(text(c.node, src).to_string()),
+                    "import.name" => imported.push(text(node, src).to_string()),
                     _ => {}
                 }
             }
@@ -314,20 +365,18 @@ pub fn extract_tree(spec: &Spec, tree: &Tree, src: &[u8]) -> FileFacts {
     }
 
     // ---- entry points
-    if let Some(q) = &spec.entries {
-        let cap = names(q);
+    {
         let mut entry_names = Vec::new();
-        let mut matches = cursor.matches(q, root, src);
-        while let Some(m) = matches.next() {
-            for c in m.captures() {
-                match cap[c.index as usize] {
+        for m in &entry_matches {
+            for &(cn, node) in m {
+                match cn {
                     "entry" => {
-                        if let Some(&i) = def_at_name.get(&c.node.start_byte()) {
+                        if let Some(&i) = def_at_name.get(&node.start_byte()) {
                             facts.defs[i].entry = true;
                         }
                     }
                     "entry.file" => facts.entry = true,
-                    "entry.name" => entry_names.push(text(c.node, src).to_string()),
+                    "entry.name" => entry_names.push(text(node, src).to_string()),
                     _ => {}
                 }
             }
@@ -341,7 +390,106 @@ pub fn extract_tree(spec: &Spec, tree: &Tree, src: &[u8]) -> FileFacts {
     }
     facts.namespaces.sort();
     facts.namespaces.dedup();
+    let owners: Vec<Option<String>> = raw.iter().map(|d| d.owner.clone()).collect();
+    let impls: Vec<bool> = raw.iter().map(|d| d.impl_block).collect();
+    regroup(&mut facts, &owners, &impls);
     facts
+}
+
+/// Attaches methods to their type when the language declares them outside it: Go methods join
+/// their receiver type, Rust `impl` blocks merge into the struct/enum/trait of the same name.
+/// Defs are then re-ordered so every parent precedes its children.
+fn regroup(facts: &mut FileFacts, owners: &[Option<String>], impls: &[bool]) {
+    let n = facts.defs.len();
+    if !impls.iter().any(|&b| b) && owners.iter().all(|o| o.is_none()) {
+        return;
+    }
+    // First non-impl class/type definition of each name.
+    let mut types: HashMap<String, usize> = HashMap::new();
+    for (i, d) in facts.defs.iter().enumerate() {
+        if !impls[i] && matches!(d.kind, NodeKind::Class | NodeKind::Type) {
+            types.entry(d.name.clone()).or_insert(i);
+        }
+    }
+    let mut parent: Vec<Option<usize>> = facts
+        .defs
+        .iter()
+        .map(|d| d.parent.map(|p| p as usize))
+        .collect();
+    // Defs replaced by another (merged impl blocks) map to their replacement.
+    let mut merged: Vec<Option<usize>> = vec![None; n];
+    for i in 0..n {
+        if impls[i] {
+            if let Some(&t) = types.get(facts.defs[i].name.as_str()) {
+                merged[i] = Some(t);
+            }
+        }
+    }
+    for i in 0..n {
+        if let Some(p) = parent[i] {
+            if let Some(t) = merged[p] {
+                parent[i] = Some(t);
+            }
+        }
+        if let (Some(o), None) = (&owners[i], parent[i]) {
+            if let Some(&t) = types.get(o.as_str()) {
+                if t != i {
+                    parent[i] = Some(t);
+                    if facts.defs[i].kind == NodeKind::Function {
+                        facts.defs[i].kind = NodeKind::Method;
+                    }
+                }
+            }
+        }
+    }
+    // Depth-first order by start line, parents first.
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut roots = Vec::new();
+    for i in 0..n {
+        if merged[i].is_some() {
+            continue;
+        }
+        match parent[i] {
+            Some(p) => children[p].push(i),
+            None => roots.push(i),
+        }
+    }
+    let by_line = |v: &mut Vec<usize>, defs: &[crate::facts::Def]| {
+        v.sort_by_key(|&i| (defs[i].start_line, i))
+    };
+    by_line(&mut roots, &facts.defs);
+    for c in children.iter_mut() {
+        by_line(c, &facts.defs);
+    }
+    let mut order = Vec::with_capacity(n);
+    let mut stack: Vec<usize> = roots.into_iter().rev().collect();
+    while let Some(i) = stack.pop() {
+        order.push(i);
+        stack.extend(children[i].iter().rev());
+    }
+    let mut new_index = vec![usize::MAX; n];
+    for (new, &old) in order.iter().enumerate() {
+        new_index[old] = new;
+    }
+    let remap = |old: usize| -> usize {
+        let target = merged[old].unwrap_or(old);
+        new_index[target]
+    };
+    let old_defs = std::mem::take(&mut facts.defs);
+    for &old in &order {
+        let mut d = old_defs[old].clone();
+        d.parent = parent[old].map(|p| remap(p) as u32);
+        // A merged impl block's entry flag carries over to the type.
+        facts.defs.push(d);
+    }
+    for (old, d) in old_defs.iter().enumerate() {
+        if merged[old].is_some() && d.entry {
+            facts.defs[remap(old)].entry = true;
+        }
+    }
+    for r in facts.refs.iter_mut() {
+        r.from = r.from.map(|f| remap(f as usize) as u32);
+    }
 }
 
 fn unquote(s: &str) -> String {

@@ -253,8 +253,8 @@ func TestStart(t *testing.T) { newServer().Start() }
         vec![
             "Version:Constant",
             "Server:Class",
+            "Server.Start:Method",
             "Handler:Type",
-            "Start:Method",
             "newServer:Function",
             "TestStart:Function"
         ]
@@ -274,7 +274,7 @@ func TestStart(t *testing.T) { newServer().Start() }
         .collect();
     assert_eq!(
         exported,
-        vec!["Version", "Server", "Handler", "Start", "TestStart"]
+        vec!["Version", "Server", "Start", "Handler", "TestStart"]
     );
     assert!(f.defs.iter().find(|d| d.name == "TestStart").unwrap().entry);
 }
@@ -308,10 +308,8 @@ fn builds() { assert!(true); }
             "tiles:Module",
             "tiles.pack:Function",
             "Engine:Class",
-            "Engine:Class",
             "Engine.new:Method",
             "Engine.helper:Method",
-            "Engine:Class",
             "Engine.default:Method",
             "main:Function",
             "builds:Function"

@@ -209,10 +209,7 @@ fn place_symbols(
     if kids.is_empty() || rect.is_empty() {
         return;
     }
-    let mut items: Vec<(u32, f64)> = kids
-        .iter()
-        .map(|&c| (c, g.node(c).loc.max(1) as f64))
-        .collect();
+    let mut items: Vec<(u32, f64)> = kids.iter().map(|&c| (c, symbol_weight(g, c))).collect();
     let covered: f64 = items.iter().map(|i| i.1).sum();
     let rest = (parent_lines - covered).max(0.0);
     items.sort_by(|a, b| {
@@ -230,9 +227,17 @@ fn place_symbols(
         }
         out.push((slot, r));
         if !g.children(slot).is_empty() {
-            place_symbols(g, slot, g.node(slot).loc.max(1) as f64, r.inner(true), out);
+            place_symbols(g, slot, symbol_weight(g, slot), r.inner(true), out);
         }
     }
+}
+
+/// Lines a symbol occupies on the map: its own span, or the sum of its children when they live
+/// outside it (Go methods attached to their receiver type), whichever is larger.
+fn symbol_weight(g: &Graph, slot: u32) -> f64 {
+    let own = g.node(slot).loc.max(1) as f64;
+    let kids: f64 = g.children(slot).iter().map(|&c| symbol_weight(g, c)).sum();
+    own.max(kids)
 }
 
 /// Squarified treemap (Bruls, Huizing, van Wijk 2000). Items must be sorted by weight desc.

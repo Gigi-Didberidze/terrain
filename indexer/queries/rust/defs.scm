@@ -6,9 +6,9 @@
 (trait_item name: (type_identifier) @name) @def.type
 (type_item name: (type_identifier) @name) @def.type
 ; impl blocks group their methods under the type name.
-(impl_item type: (type_identifier) @name) @def.class
-(impl_item type: (generic_type type: (type_identifier) @name)) @def.class
-(impl_item type: (scoped_type_identifier name: (type_identifier) @name)) @def.class
+(impl_item type: (type_identifier) @name) @def.impl
+(impl_item type: (generic_type type: (type_identifier) @name)) @def.impl
+(impl_item type: (scoped_type_identifier name: (type_identifier) @name)) @def.impl
 (mod_item name: (identifier) @name body: (declaration_list)) @def.module
 (const_item name: (identifier) @name) @def.constant
 (static_item name: (identifier) @name) @def.constant

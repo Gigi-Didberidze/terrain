@@ -22,6 +22,10 @@ pub struct Spec {
     pub refs: Query,
     pub imports: Option<Query>,
     pub entries: Option<Query>,
+    /// All four query files in one query, so a file is walked once instead of four times.
+    /// `bounds[i]..bounds[i + 1]` are the pattern indices of section i (defs, refs, imports,
+    /// entries). None for Tier 2, whose tags.scm serves as both defs and refs.
+    pub combined: Option<(Query, [usize; 5])>,
 }
 
 macro_rules! q {
@@ -90,17 +94,26 @@ fn build(lang: Lang) -> Result<Option<Spec>, String> {
     if let Some((language, s)) = tier1(lang) {
         // TSX is TypeScript plus JSX; the JSX node types exist only in the TSX grammar.
         let refs = if lang == Lang::Tsx {
-            format!(
-                "{}
-{}",
-                s.refs,
-                q!("typescript", "refs-jsx.scm")
-            )
+            format!("{}\n{}", s.refs, q!("typescript", "refs-jsx.scm"))
         } else {
             s.refs.to_string()
         };
+        let parts = [
+            s.defs,
+            refs.as_str(),
+            s.imports.unwrap_or(""),
+            s.entries.unwrap_or(""),
+        ];
+        let combined_src = parts.join("\n");
+        let combined = compile(&language, &combined_src, "combined queries")?;
+        let mut bounds = [0usize; 5];
+        for (i, p) in parts.iter().enumerate() {
+            bounds[i + 1] = bounds[i] + compile(&language, p, "section")?.pattern_count();
+        }
+        debug_assert_eq!(bounds[4], combined.pattern_count());
         return Ok(Some(Spec {
             lang,
+            combined: Some((combined, bounds)),
             defs: compile(&language, s.defs, "defs.scm")?,
             refs: compile(&language, &refs, "refs.scm")?,
             imports: s
@@ -121,6 +134,7 @@ fn build(lang: Lang) -> Result<Option<Spec>, String> {
             refs: compile(&language, tags, "tags.scm")?,
             imports: None,
             entries: None,
+            combined: None,
             language,
         }));
     }
