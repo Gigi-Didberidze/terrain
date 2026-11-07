@@ -11,6 +11,19 @@ on:
         description: "Publish to the VS Code Marketplace and Open VSX (unticked: check only)"
         type: boolean
         default: false
+      platforms:
+        description: "Platforms to publish, space-separated (empty: all six)"
+        type: string
+        default: ""
+      ci_run:
+        description: "Take the packages from this CI run ID (empty: the run for this commit)"
+        type: string
+        default: ""
+      stores:
+        description: "Where to publish"
+        type: choice
+        options: [both, marketplace, openvsx]
+        default: both
 
 permissions:
   contents: read
@@ -30,8 +43,15 @@ jobs:
 
       - name: Find the CI run that built this commit
         id: ci
-        env: { GH_TOKEN: "${{ github.token }}" }
+        env: { GH_TOKEN: "${{ github.token }}", CI_RUN: "${{ inputs.ci_run }}" }
         run: |
+          if [ -n "$CI_RUN" ]; then
+            # A named run must be a successful CI run (to complete a release from the same builds).
+            ok=$(gh run view "$CI_RUN" --json workflowName,conclusion -q 'select(.workflowName == "ci" and .conclusion == "success") | "yes"')
+            [ "$ok" = yes ] || { echo "::error::run $CI_RUN is not a successful ci run"; exit 1; }
+            echo "run=$CI_RUN" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           run=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --status success --limit 1 --json databaseId -q '.[0].databaseId')
           if [ -z "$run" ]; then
             echo "::error::No successful CI run for $GITHUB_SHA. Release only commits whose CI passed."
@@ -79,14 +99,33 @@ jobs:
             echo "$out"; exit 1
           fi
 
-      - name: Publish to the VS Code Marketplace
+      - name: Choose the packages to publish
         if: ${{ inputs.publish }}
+        env: { PLATFORMS: "${{ inputs.platforms }}" }
+        run: |
+          mkdir -p publish
+          for f in vsix/*.vsix; do
+            p=$(basename "$f" .vsix); p=${p#terrain-}
+            if [ -z "$PLATFORMS" ] || [[ " $PLATFORMS " == *" $p "* ]]; then cp "$f" publish/; fi
+          done
+          ls publish
+          [ -n "$(ls publish)" ] || { echo "::error::no package matches: $PLATFORMS"; exit 1; }
+
+      # One upload at a time, and wait between them: a brand-new extension's first upload is
+      # still being verified when the next arrives, and the Marketplace dropped five of six
+      # uploads sent back to back on the first release.
+      - name: Publish to the VS Code Marketplace
+        if: ${{ inputs.publish && inputs.stores != 'openvsx' }}
         env: { VSCE_PAT: "${{ secrets.VSCE_PAT }}" }
-        run: npx vsce publish --packagePath vsix/*.vsix
+        run: |
+          for f in publish/*.vsix; do
+            npx vsce publish --packagePath "$f"
+            sleep 60
+          done
 
       - name: Publish to Open VSX
-        if: ${{ inputs.publish }}
+        if: ${{ inputs.publish && inputs.stores != 'marketplace' }}
         env: { OVSX_PAT: "${{ secrets.OVSX_PAT }}" }
         run: |
           npx ovsx verify-pat "$PUBLISHER" >/dev/null 2>&1 || npx ovsx create-namespace "$PUBLISHER"
-          for f in vsix/*.vsix; do npx ovsx publish "$f"; done
+          for f in publish/*.vsix; do npx ovsx publish "$f"; done
