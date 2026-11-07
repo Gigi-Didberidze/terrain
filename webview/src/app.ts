@@ -1,6 +1,6 @@
 // The map view: tile streaming, scene assembly, input and the render loop.
 // Frames are drawn only when something changes; nothing animates on its own.
-import type { EdgesResult, MapInfo, NodeInfo } from "../../protocol/generated/protocol.ts";
+import type { EdgesResult, HistorySummary, MapInfo, NodeInfo } from "../../protocol/generated/protocol.ts";
 import type { HostToView, ViewTile } from "../../protocol/webview.ts";
 import { Camera } from "./camera.ts";
 import { Host } from "./host.ts";
@@ -12,7 +12,7 @@ import type { Line, Renderer, TileDraw } from "./render/types.ts";
 import { buildLabels, buildOverlay, buildTileBatch, hereMarker, sortForPaint, WidthCache, type BaseStyle, type Outline } from "./scene.ts";
 import { decodeTile, KIND_DIR, KIND_FILE, TileCache, tileKey, type DecodedTile, type Item } from "./tiles.ts";
 import { Help } from "./ui/help.ts";
-import { LENSES, lensColor, type LensId } from "./lenses.ts";
+import { couplingMuted, LENSES, lensColor, shortAuthor, type CouplingFocus, type LensId } from "./lenses.ts";
 import { HoverCard } from "./ui/hover.ts";
 import { Legend } from "./ui/legend.ts";
 import { SearchBox } from "./ui/search.ts";
@@ -42,6 +42,11 @@ export class App {
   private lens: LensId = 1;
   /** Shown in the legend for a moment when a lens is not available yet. */
   private lensNotice = "";
+  /** Git history overview (null until the indexer has mined it, or outside a repository). */
+  private historySummary: HistorySummary | null = null;
+  /** Coupling lens: the selected file and its co-change partners. */
+  private coupling: CouplingFocus | null = null;
+  private couplingSeq = 0;
   /** Dependency edges per node, fetched on demand for the selection, hover and pins. */
   private readonly edgeSets = new Map<number, EdgesResult>();
   private readonly edgePending = new Set<number>();
@@ -87,7 +92,7 @@ export class App {
     this.camera.bottomInset = 24;
     this.follow = this.host.state.follow !== false;
     const savedLens = Number(this.host.state.lens);
-    if (savedLens === 1 || savedLens === 2) this.lens = savedLens;
+    if (savedLens >= 1 && savedLens <= 5) this.lens = savedLens as LensId;
 
     this.initRenderer();
     this.bindInput();
@@ -150,7 +155,9 @@ export class App {
         // A finished phase shows nothing; incremental updates report progress without a
         // closing "idle", so completion is judged by the counts themselves.
         this.progress =
-          m.phase === "idle" || m.done >= m.total ? "" : `${phaseLabel(m.phase)} ${m.done.toLocaleString("en-US")} / ${m.total.toLocaleString("en-US")} files`;
+          m.phase === "idle" || m.done >= m.total
+            ? ""
+            : `${phaseLabel(m.phase)} ${m.done.toLocaleString("en-US")} / ${m.total.toLocaleString("en-US")} ${m.phase === "history" ? "commits" : "files"}`;
         if (!this.info || this.info.files === 0) {
           if (m.phase !== "idle") this.setState(`Indexing · ${this.progress}`);
         }
@@ -184,6 +191,46 @@ export class App {
       this.applyInfo(await this.host.request("map/info", null));
     } catch (e) {
       this.setState(String(e), "error");
+      return;
+    }
+    void this.loadHistory();
+  }
+
+  private async loadHistory(): Promise<void> {
+    try {
+      const h = await this.host.request("history/summary", null);
+      const changed = h.head !== this.historySummary?.head || h.commits !== this.historySummary?.commits;
+      this.historySummary = h;
+      if (changed && this.lens === 4) void this.loadCoupling();
+      this.updateLegend();
+    } catch {
+      // Older indexer or no repository: lenses 3-5 report themselves unavailable.
+    }
+  }
+
+  /** Coupling lens: fetches the selected file's co-change partners. */
+  private async loadCoupling(): Promise<void> {
+    const seq = ++this.couplingSeq;
+    const done = (c: CouplingFocus | null) => {
+      if (seq !== this.couplingSeq) return;
+      this.coupling = c;
+      this.styleVersion++;
+      this.updateLegend();
+      this.invalidate();
+    };
+    if (this.selected === null || this.lens !== 4) return done(null);
+    try {
+      const n = await this.host.request("node/info", { slot: this.selected });
+      if (n.kind === "dir") return done(null);
+      const file = n.kind === "file" ? n : await this.host.request("node/info", { slot: n.ancestors[0]! });
+      const h = await this.host.request("history/file", { path: file.path });
+      done({
+        file: file.slot,
+        fileRect: file.rect,
+        partners: new Map(h.partners.map((p) => [p.node.slot, { slot: p.node.slot, degree: p.degree, hidden: p.hidden, rect: p.rect }])),
+      });
+    } catch {
+      done(null);
     }
   }
 
@@ -213,6 +260,7 @@ export class App {
     this.cache = new TileCache();
     this.edgeSets.clear();
     void this.loadInfo();
+    if (this.lens === 4) void this.loadCoupling();
     this.invalidate();
   }
 
@@ -232,8 +280,21 @@ export class App {
       const more = set.total > set.edges.length ? ` (top ${set.edges.length} of ${set.total})` : "";
       edges = `purple uses ${out} · orange used by ${inn}${more} · dashed = name-matched`;
     }
-    const status = [this.lensNotice, this.progress, edges, this.follow ? "" : "follow off"].filter(Boolean).join(" · ");
-    this.legend.set(`${LENSES[this.lens].legend} · area = lines`, this.info?.files ?? 0, status);
+    let lensNote = "";
+    let swatches: { color: string; label: string }[] = [];
+    if (this.lens === 4) {
+      if (this.selected === null) lensNote = "select a file to see what changes with it";
+      else if (this.coupling) {
+        const ps = [...this.coupling.partners.values()];
+        const hidden = ps.filter((p) => p.hidden).length;
+        lensNote = ps.length ? `${ps.length} partners, ${hidden} hidden` : "no file changes with it often (5+ shared commits)";
+      }
+    } else if (this.lens === 5 && this.historySummary) {
+      const c = this.theme.categorical;
+      swatches = this.historySummary.topAuthors.map((a, i) => ({ color: css(c[i % c.length]!), label: shortAuthor(a) }));
+    }
+    const status = [lensNote, this.lensNotice, this.progress, edges, this.follow ? "" : "follow off"].filter(Boolean).join(" · ");
+    this.legend.set(`${LENSES[this.lens].legend} · area = lines`, this.info?.files ?? 0, status, swatches);
   }
 
   // ---------------------------------------------------------------- tiles & scene
@@ -353,7 +414,12 @@ export class App {
   private baseStyle(): BaseStyle {
     const lens = this.lens;
     const theme = this.theme;
-    return { theme, lensColor: (it) => lensColor(lens, it, theme) };
+    const coupling = lens === 4 ? this.coupling : null;
+    return {
+      theme,
+      lensColor: (it) => lensColor(lens, it, theme, coupling),
+      muted: coupling ? (it) => couplingMuted(it, coupling) : undefined,
+    };
   }
 
   /** Finds a visible item by slot (finest tile first). */
@@ -524,6 +590,7 @@ export class App {
       if (this.history.length > 200) this.history.shift();
     }
     this.selected = slot;
+    if (this.lens === 4) void this.loadCoupling();
     this.updateLegend();
     this.host.post({ type: "select", slot });
     this.invalidate();
@@ -559,21 +626,35 @@ export class App {
     });
   }
 
+  private flashNotice(text: string): void {
+    this.lensNotice = text;
+    this.updateLegend();
+    window.setTimeout(() => {
+      if (this.lensNotice !== text) return;
+      this.lensNotice = "";
+      this.updateLegend();
+    }, 2500);
+  }
+
   private setLens(id: LensId): void {
     const def = LENSES[id];
     if (def.pending) {
-      this.lensNotice = `${def.name} lens needs ${def.pending}`;
-      this.updateLegend();
-      window.setTimeout(() => {
-        this.lensNotice = "";
-        this.updateLegend();
-      }, 2500);
+      this.flashNotice(`${def.name} lens needs ${def.pending}`);
+      return;
+    }
+    if (def.history && !this.historySummary?.available) {
+      this.flashNotice(
+        this.info?.phase !== "idle"
+          ? `${def.name} lens: still reading git history`
+          : `${def.name} lens needs git history (no repository found)`,
+      );
       return;
     }
     if (id === this.lens) return;
     this.lens = id;
     this.styleVersion++;
     this.host.setState({ lens: id });
+    if (id === 4) void this.loadCoupling();
     this.updateLegend();
     this.invalidate();
   }
@@ -842,8 +923,25 @@ export class App {
 }
 
 function phaseLabel(p: string): string {
-  return p === "discover" ? "Discovering" : p === "hash" ? "Reading" : p === "parse" ? "Parsing" : p === "resolve" ? "Resolving" : p === "analyse" ? "Analysing" : p;
+  return p === "discover"
+    ? "Discovering"
+    : p === "hash"
+      ? "Reading"
+      : p === "parse"
+        ? "Parsing"
+        : p === "resolve"
+          ? "Resolving"
+          : p === "analyse"
+            ? "Analysing"
+            : p === "history"
+              ? "Reading git history"
+              : p;
 }
+
+function css(c: readonly number[]): string {
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
+
 
 export function hoverLines(n: NodeInfo): { title: string; lines: string[] } {
   const loc = `${n.loc.toLocaleString("en-US")} lines`;
@@ -853,6 +951,11 @@ export function hoverLines(n: NodeInfo): { title: string; lines: string[] } {
   if (n.kind === "dir") lines[0] = `directory · ${n.files.toLocaleString("en-US")} files · ${loc}`;
   lines.push(n.kind === "file" || n.kind === "dir" ? n.path || "/" : `${n.path}:${n.startLine}`);
   if (n.inCount || n.outCount) lines.push(`used by ${n.inCount.toLocaleString("en-US")} · uses ${n.outCount.toLocaleString("en-US")}`);
+  if (n.kind !== "dir" && (n.churn || n.owner)) {
+    const churn = `${n.churn.toLocaleString("en-US")} commit${n.churn === 1 ? "" : "s"} in 90 days`;
+    const owner = n.owner ? ` · ${shortAuthor(n.owner)} ${Math.round(n.ownerShare * 100)}%` : "";
+    lines.push(churn + owner);
+  }
   return { title: n.kind === "file" || n.kind === "dir" ? n.name : n.qualified, lines };
 }
 

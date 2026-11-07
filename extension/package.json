@@ -50,6 +50,16 @@
         "category": "Compass"
       },
       {
+        "command": "compass.showMisplaced",
+        "title": "Show Misplaced Files",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.showHiddenDependencies",
+        "title": "Show Hidden Dependencies",
+        "category": "Compass"
+      },
+      {
         "command": "compass.reindex",
         "title": "Reindex Workspace",
         "category": "Compass"

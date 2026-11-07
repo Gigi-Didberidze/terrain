@@ -92,6 +92,19 @@ canvas.map:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+.legend .key {
+  margin-left: 10px;
+}
+
+.legend .swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 2px;
+  vertical-align: 0;
+}
+
 button.link {
   font: inherit;
   color: inherit;

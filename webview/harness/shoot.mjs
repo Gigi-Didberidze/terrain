@@ -32,6 +32,12 @@ for (const theme of themes.length ? themes : ["dark", "light", "hc"]) {
     await page.keyboard.press("2");
     await page.waitForTimeout(1200);
     await page.screenshot({ path: join(out, `map-${theme}-load.png`) });
+    // History lenses: churn and ownership (coupling needs a selection, below).
+    for (const [key, name] of [["3", "churn"], ["5", "owner"]]) {
+      await page.keyboard.press(key);
+      await page.waitForTimeout(1200);
+      await page.screenshot({ path: join(out, `map-${theme}-${name}.png`) });
+    }
     await page.keyboard.press("1");
     await page.waitForTimeout(600);
   }
@@ -43,6 +49,11 @@ for (const theme of themes.length ? themes : ["dark", "light", "hc"]) {
     }, select);
     await page.waitForTimeout(1500);
     await page.screenshot({ path: join(out, `map-${theme}-selected.png`) });
+    await page.keyboard.press("4");
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: join(out, `map-${theme}-coupling.png`) });
+    await page.keyboard.press("1");
+    await page.waitForTimeout(600);
   }
   if (theme === "dark") {
     // Zoom into the upper-left quadrant to check semantic zoom and labels.

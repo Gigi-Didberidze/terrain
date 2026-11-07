@@ -18,6 +18,11 @@ export interface Theme {
   categorical: RGBA[];
   /** Ramp end for sequential lenses. */
   rampHigh: RGBA;
+  /** Churn lens ramp end. */
+  churnHigh: RGBA;
+  /** Coupling lens: partners with a code link, and hidden dependencies (no code link). */
+  coupling: RGBA;
+  hiddenCoupling: RGBA;
   editorFont: string;
   uiFont: string;
 }
@@ -131,6 +136,9 @@ export function readTheme(): Theme {
       cssColor("var(--vscode-terminal-ansiMagenta)", "#bc3fbc"),
     ],
     rampHigh: chart("blue", "#3794ff"),
+    churnHigh: chart("orange", "#d18616"),
+    coupling: chart("yellow", "#cca700"),
+    hiddenCoupling: chart("red", "#f14c4c"),
     editorFont: cs.getPropertyValue("--vscode-editor-font-family").trim() || "monospace",
     uiFont: cs.getPropertyValue("--vscode-font-family").trim() || "sans-serif",
   };

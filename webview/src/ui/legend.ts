@@ -5,6 +5,7 @@ export class Legend {
   private readonly measure: HTMLElement;
   private readonly count: HTMLButtonElement;
   private readonly status: HTMLElement;
+  private readonly keys: HTMLElement;
   onCountClick: (() => void) | undefined;
 
   constructor(parent: HTMLElement) {
@@ -18,12 +19,26 @@ export class Legend {
     this.count.addEventListener("click", () => this.onCountClick?.());
     this.status = document.createElement("span");
     this.status.className = "muted";
-    this.el.append(this.measure, sep(), this.count, this.status);
+    this.keys = document.createElement("span");
+    this.keys.className = "keys";
+    this.el.append(this.measure, this.keys, sep(), this.count, this.status);
     parent.append(this.el);
   }
 
-  set(measure: string, files: number, status: string): void {
+  /** `swatches`: a colour key for categorical lenses (Ownership lists its authors). */
+  set(measure: string, files: number, status: string, swatches: { color: string; label: string }[] = []): void {
     this.measure.textContent = measure;
+    this.keys.replaceChildren(
+      ...swatches.map((s) => {
+        const k = document.createElement("span");
+        k.className = "key";
+        const dot = document.createElement("span");
+        dot.className = "swatch";
+        dot.style.background = s.color;
+        k.append(dot, s.label);
+        return k;
+      }),
+    );
     this.count.textContent = `${files.toLocaleString("en-US")} files`;
     this.status.textContent = status ? ` · ${status}` : "";
   }

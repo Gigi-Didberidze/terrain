@@ -1,7 +1,7 @@
 // Context sidebar: a native tree (not the webview) for the symbol under the cursor or the map
 // selection. Works with the map closed.
 import * as vscode from "vscode";
-import type { ContextResult, NodeRef } from "../../../protocol/generated/protocol.ts";
+import type { BlameResult, ContextResult, HistoryFileResult, NodeRef } from "../../../protocol/generated/protocol.ts";
 import type { Session } from "../session.ts";
 import { toRelative } from "../paths.ts";
 
@@ -11,19 +11,24 @@ class Section {
   readonly label: string;
   readonly refs: NodeRef[];
   readonly total: number;
+  readonly notes: (string | undefined)[];
   readonly kind: "section" = "section";
-  constructor(label: string, refs: NodeRef[], total = refs.length) {
+  constructor(label: string, refs: NodeRef[], total = refs.length, notes: (string | undefined)[] = []) {
     this.label = label;
     this.refs = refs;
     this.total = total;
+    this.notes = notes;
   }
 }
 
 class Ref {
   readonly kind: "ref" = "ref";
   readonly ref: NodeRef;
-  constructor(ref: NodeRef) {
+  /** Extra description (co-change partners: shared commits, hidden). */
+  readonly note: string | undefined;
+  constructor(ref: NodeRef, note?: string) {
     this.ref = ref;
+    this.note = note;
   }
 }
 
@@ -37,12 +42,19 @@ class Fact {
   }
 }
 
+/** "ann@example.com" → "ann", "123+ann@users.noreply.github.com" → "ann". */
+const short = (author: string) => (author.indexOf("@") > 0 ? author.slice(0, author.indexOf("@")) : author).replace(/^\d+\+/, "");
+
 const pct = (load: number) => (load >= 0.5 ? `top ${Math.max(1, Math.round((1 - load) * 100))}%` : `bottom ${Math.max(1, Math.round(load * 100))}%`);
 
 export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<Item | undefined>();
   readonly onDidChangeTreeData = this.changed.event;
   private ctx: ContextResult | undefined;
+  private hist: HistoryFileResult | undefined;
+  /** Blame per file, until the next history change. */
+  private readonly blames = new Map<string, BlameResult>();
+  private blamePending = "";
   private timer: NodeJS.Timeout | undefined;
   private lastKey = "";
   private readonly disposables: vscode.Disposable[] = [];
@@ -65,9 +77,13 @@ export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Dispos
   async showSlot(slot: number): Promise<void> {
     try {
       const client = await this.session.get();
-      this.ctx = await client.request("node/context", { slot, limit: 50 });
+      const ctx = await client.request("node/context", { slot, limit: 50 });
+      const path = ctx.node.kind === "dir" ? "" : ctx.node.path;
+      this.hist = path ? await client.request("history/file", { path }).catch(() => undefined) : undefined;
+      this.ctx = ctx;
       this.lastKey = `slot:${slot}`;
       this.render();
+      if (path && this.hist?.commits) void this.loadBlame(path);
     } catch {
       // Node gone or indexer restarting.
     }
@@ -76,6 +92,28 @@ export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Dispos
   /** Re-reads the current node after the graph changed. */
   refresh(): void {
     if (this.ctx) void this.showSlot(this.ctx.node.slot);
+  }
+
+  /** New commits: blame results are stale. */
+  historyChanged(): void {
+    this.blames.clear();
+    this.refresh();
+  }
+
+  /** Ownership by lines (blame) for the current file; computed once per file, off the cursor path. */
+  private async loadBlame(path: string): Promise<void> {
+    if (this.blames.has(path) || this.blamePending === path) return;
+    this.blamePending = path;
+    try {
+      const client = await this.session.get();
+      const b = await client.request("history/blame", { path });
+      this.blames.set(path, b);
+      if (this.ctx?.node.path === path) this.render();
+    } catch {
+      // Not in git, or the file is new.
+    } finally {
+      if (this.blamePending === path) this.blamePending = "";
+    }
   }
 
   private schedule(delay = 250): void {
@@ -119,6 +157,18 @@ export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Dispos
       if (n.complexity) facts.push(new Fact("Complexity", `${n.complexity} (cyclomatic)`));
       if (n.inCycle) facts.push(new Fact("Import cycle", "this file is part of one (Compass: Show Cycles)"));
       if (n.deadCandidate) facts.push(new Fact("Dead-code candidate", "nothing depends on it; not an entry point or exported"));
+      const h = this.hist;
+      if (h && h.commits) {
+        facts.push(new Fact("Churn", `${h.churn} commit${h.churn === 1 ? "" : "s"} in the last 90 days · ${h.commits.toLocaleString("en-US")} in all`));
+        const blame = this.blames.get(n.path);
+        const lines = blame?.authors.reduce((s, a) => s + a.lines, 0) ?? 0;
+        if (blame && lines > 0) {
+          const top = blame.authors.slice(0, 3).map((a) => `${short(a.author)} ${Math.round((a.lines / lines) * 100)}%`);
+          facts.push(new Fact("Owner", `${top.join(" · ")} of lines`));
+        } else if (h.owner) {
+          facts.push(new Fact("Owner", `${short(h.owner)} · ${Math.round(h.ownerShare * 100)}% of commits`));
+        }
+      }
       const sections = [
         new Section("Callers", c.callers),
         new Section("Callees", c.callees),
@@ -126,10 +176,16 @@ export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Dispos
         new Section("Imports", c.imports),
         new Section("Tests that reach it", c.tests),
         new Section("Blast radius", c.blast, c.blastCount),
+        new Section(
+          "Changes with",
+          (h?.partners ?? []).map((p) => p.node),
+          h?.partners.length ?? 0,
+          (h?.partners ?? []).map((p) => `${Math.round(p.degree * 100)}% · ${p.shared} commits${p.hidden ? " · no code link" : ""}`),
+        ),
       ].filter((s) => s.total > 0);
       return [...facts, ...sections];
     }
-    if (item.kind === "section") return item.refs.map((r) => new Ref(r));
+    if (item.kind === "section") return item.refs.map((r, i) => new Ref(r, item.notes[i]));
     return [];
   }
 
@@ -149,8 +205,8 @@ export class ContextView implements vscode.TreeDataProvider<Item>, vscode.Dispos
     }
     const r = item.ref;
     const t = new vscode.TreeItem(r.name, vscode.TreeItemCollapsibleState.None);
-    t.description = r.kind === "file" ? r.path : `${r.path}:${r.line}`;
-    t.tooltip = `${r.kind} ${r.name}\n${r.path}:${r.line}`;
+    t.description = item.note ?? (r.kind === "file" ? r.path : `${r.path}:${r.line}`);
+    t.tooltip = `${r.kind} ${r.name}\n${r.path}:${r.line}${item.note ? `\nchanges with it: ${item.note}` : ""}`;
     t.contextValue = "compassNode";
     t.accessibilityInformation = { label: `${r.kind} ${r.name} in ${r.path} line ${r.line}` };
     t.command = { command: "compass.openNodeRef", title: "Open", arguments: [r] };
