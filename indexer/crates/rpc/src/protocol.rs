@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum IndexPhase {
@@ -43,6 +43,34 @@ pub enum NodeKind {
     Type,
     #[serde(rename = "constant")]
     Constant,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EdgeKind {
+    #[serde(rename = "contains")]
+    Contains,
+    #[serde(rename = "imports")]
+    Imports,
+    #[serde(rename = "calls")]
+    Calls,
+    #[serde(rename = "references")]
+    References,
+    #[serde(rename = "inherits")]
+    Inherits,
+    #[serde(rename = "implements")]
+    Implements,
+    #[serde(rename = "cochanges")]
+    Cochanges,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Confidence {
+    #[serde(rename = "syntactic")]
+    Syntactic,
+    #[serde(rename = "semantic")]
+    Semantic,
+    #[serde(rename = "historical")]
+    Historical,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -161,6 +189,8 @@ pub struct NodeInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rect: Option<Rect>,
     pub ancestors: Vec<u32>,
+    pub in_count: u32,
+    pub out_count: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -236,6 +266,36 @@ pub struct StatusResult {
     pub rss_mb: f64,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EdgesParams {
+    pub slot: u32,
+    pub limit: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EdgeView {
+    pub other: u32,
+    pub outgoing: bool,
+    pub kind: EdgeKind,
+    pub confidence: Confidence,
+    pub weight: f64,
+    pub count: u32,
+    pub name: String,
+    pub other_kind: NodeKind,
+    pub path: String,
+    pub route: Vec<Rect>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EdgesResult {
+    pub slot: u32,
+    pub edges: Vec<EdgeView>,
+    pub total: u32,
+}
+
 pub mod method {
     pub const INITIALIZE: &str = "initialize";
     pub const PING: &str = "ping";
@@ -247,6 +307,7 @@ pub mod method {
     pub const SEARCH: &str = "search";
     pub const FILES_CHANGED: &str = "files/changed";
     pub const INDEX_STATUS: &str = "index/status";
+    pub const NODE_EDGES: &str = "node/edges";
 }
 
 pub mod notification {

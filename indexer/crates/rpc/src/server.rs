@@ -201,6 +201,14 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
                 node_info(&e, sp.slot).ok_or_else(|| RpcError::invalid_params("no such node"))?;
             to_value(info)
         }
+        method::NODE_EDGES => {
+            let ep: p::EdgesParams = parse_params(params)?;
+            let e = s.read();
+            if e.graph.get(ep.slot).is_none() {
+                return Err(RpcError::invalid_params("no such node"));
+            }
+            to_value(edges(&e, ep.slot, ep.limit.min(1000) as usize))
+        }
         method::NODE_LOCATE => {
             let lp: p::LocateParams = parse_params(params)?;
             let e = s.read();
@@ -272,6 +280,7 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
 
 fn node_info(e: &Engine, slot: u32) -> Option<p::NodeInfo> {
     let i = e.node_info(slot)?;
+    let (in_count, out_count) = e.edge_counts(slot);
     let mut ancestors = Vec::new();
     let mut cur = i.parent;
     while let Some(a) = cur {
@@ -300,7 +309,72 @@ fn node_info(e: &Engine, slot: u32) -> Option<p::NodeInfo> {
             h: r.h,
         }),
         ancestors,
+        in_count,
+        out_count,
     })
+}
+
+fn edge_kind_dto(k: compass_core::model::EdgeKind) -> p::EdgeKind {
+    use compass_core::model::EdgeKind as K;
+    match k {
+        K::Contains => p::EdgeKind::Contains,
+        K::Imports => p::EdgeKind::Imports,
+        K::Calls => p::EdgeKind::Calls,
+        K::References => p::EdgeKind::References,
+        K::Inherits => p::EdgeKind::Inherits,
+        K::Implements => p::EdgeKind::Implements,
+        K::Cochanges => p::EdgeKind::Cochanges,
+    }
+}
+
+fn confidence_dto(c: compass_core::model::Confidence) -> p::Confidence {
+    use compass_core::model::Confidence as C;
+    match c {
+        C::Syntactic => p::Confidence::Syntactic,
+        C::Semantic => p::Confidence::Semantic,
+        C::Historical => p::Confidence::Historical,
+    }
+}
+
+fn edges(e: &Engine, slot: u32, limit: usize) -> p::EdgesResult {
+    let all = e.edges_of(slot, usize::MAX);
+    let total = all.len() as u32;
+    let edges = all
+        .into_iter()
+        .take(limit)
+        .map(|v| {
+            let n = e.graph.node(v.other);
+            let file = if n.kind.is_symbol() { n.file } else { v.other };
+            let name = if n.kind.is_symbol() {
+                e.graph.qualified_name(v.other)
+            } else {
+                n.name.to_string()
+            };
+            let route = e
+                .bundle_path(slot, v.other)
+                .into_iter()
+                .map(|r| p::Rect {
+                    x: r.x,
+                    y: r.y,
+                    w: r.w,
+                    h: r.h,
+                })
+                .collect();
+            p::EdgeView {
+                other: v.other,
+                outgoing: v.outgoing,
+                kind: edge_kind_dto(v.kind),
+                confidence: confidence_dto(v.conf),
+                weight: v.weight as f64,
+                count: v.count,
+                name,
+                other_kind: kind_dto(n.kind),
+                path: e.graph.path(file).unwrap_or("").to_string(),
+                route,
+            }
+        })
+        .collect();
+    p::EdgesResult { slot, edges, total }
 }
 
 pub fn phase_dto(ph: Phase) -> p::IndexPhase {

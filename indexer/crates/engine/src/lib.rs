@@ -335,6 +335,136 @@ impl Engine {
     pub fn status(&self) -> (Phase, usize) {
         (self.phase, self.graph.file_count())
     }
+
+    /// Nodes in `slot`'s subtree (itself included), capped so huge directories stay cheap.
+    fn subtree(&self, slot: u32, cap: usize) -> Vec<u32> {
+        let mut out = vec![slot];
+        let mut i = 0;
+        while i < out.len() && out.len() < cap {
+            let s = out[i];
+            out.extend_from_slice(self.graph.children(s));
+            i += 1;
+        }
+        out.truncate(cap);
+        out
+    }
+
+    /// The node an edge endpoint is shown as: symbols stay symbols when looking at a symbol;
+    /// for files and directories the other side is shown at file level.
+    fn display_node(&self, other: u32, from_kind: NodeKind) -> u32 {
+        let n = self.graph.node(other);
+        if from_kind.is_symbol() || !n.kind.is_symbol() {
+            other
+        } else {
+            n.file
+        }
+    }
+
+    /// Dependency edges of a node, aggregated per other endpoint, heaviest first.
+    /// For files and directories this includes the edges of everything inside them.
+    pub fn edges_of(&self, slot: u32, limit: usize) -> Vec<EdgeView> {
+        let Some(n) = self.graph.get(slot) else {
+            return Vec::new();
+        };
+        let kind = n.kind;
+        // Containers (dirs, files, classes) count the edges of everything inside them: what holds
+        // a class up is mostly the callers of its methods.
+        let inside: Vec<u32> = self.subtree(slot, 50_000);
+        let inside_set: HashSet<u32> = inside.iter().copied().collect();
+        let mut agg: std::collections::HashMap<(u32, bool), EdgeView> =
+            std::collections::HashMap::new();
+        for &s in &inside {
+            for (outgoing, list) in [
+                (true, self.graph.out_edges(s)),
+                (false, self.graph.in_edges(s)),
+            ] {
+                for e in list {
+                    if !e.kind.is_dependency() || inside_set.contains(&e.other) {
+                        continue;
+                    }
+                    let other = self.display_node(e.other, kind);
+                    if inside_set.contains(&other) {
+                        continue;
+                    }
+                    let v = agg.entry((other, outgoing)).or_insert(EdgeView {
+                        other,
+                        outgoing,
+                        kind: e.kind,
+                        conf: e.conf,
+                        weight: 0.0,
+                        count: 0,
+                    });
+                    v.weight += e.weight;
+                    v.count += 1;
+                    // Show the most certain confidence and the most specific kind seen.
+                    if (e.conf as u8) == (Confidence::Semantic as u8) {
+                        v.conf = Confidence::Semantic;
+                    }
+                    if v.kind == EdgeKind::Imports && e.kind != EdgeKind::Imports {
+                        v.kind = e.kind;
+                    }
+                }
+            }
+        }
+        let mut v: Vec<EdgeView> = agg.into_values().collect();
+        v.sort_by(|a, b| b.weight.total_cmp(&a.weight).then(a.other.cmp(&b.other)));
+        v.truncate(limit);
+        v
+    }
+
+    /// Number of distinct nodes this one depends on / is depended on by (at display level).
+    pub fn edge_counts(&self, slot: u32) -> (u32, u32) {
+        let v = self.edges_of(slot, usize::MAX);
+        let outs = v.iter().filter(|e| e.outgoing).count() as u32;
+        (v.len() as u32 - outs, outs)
+    }
+
+    /// Bundling path from `a` to `b`: rects of `a`'s ancestors up to (not including) their lowest
+    /// common ancestor, then down to `b`. Hierarchical edge bundling uses their centres as
+    /// control points, so edges that share structure share a route.
+    pub fn bundle_path(&self, a: u32, b: u32) -> Vec<compass_core::Rect> {
+        let chain = |mut s: u32| {
+            let mut v = vec![s];
+            while self.graph.node(s).parent != NONE {
+                s = self.graph.node(s).parent;
+                v.push(s);
+            }
+            v
+        };
+        let (ca, cb) = (chain(a), chain(b));
+        let sb: HashSet<u32> = cb.iter().copied().collect();
+        let lca = ca.iter().copied().find(|s| sb.contains(s));
+        let mut nodes: Vec<u32> = ca.iter().copied().take_while(|&s| Some(s) != lca).collect();
+        if let Some(l) = lca {
+            nodes.push(l);
+        }
+        let down: Vec<u32> = cb.iter().copied().take_while(|&s| Some(s) != lca).collect();
+        nodes.extend(down.into_iter().rev());
+        self.with_layout(|l| {
+            let mut out = Vec::with_capacity(nodes.len());
+            for &s in &nodes {
+                if s != Graph::ROOT && !l.is_collapsed(&self.graph, s) {
+                    if let Some(r) = l.rect_of(&self.graph, s) {
+                        out.push(r);
+                    }
+                }
+            }
+            out
+        })
+    }
+}
+
+/// One aggregated dependency of a node.
+#[derive(Clone, Debug)]
+pub struct EdgeView {
+    pub other: u32,
+    /// true: the node depends on `other`; false: `other` depends on the node.
+    pub outgoing: bool,
+    pub kind: EdgeKind,
+    pub conf: Confidence,
+    pub weight: f32,
+    /// Underlying edges merged into this one.
+    pub count: u32,
 }
 
 /// Full index run: warm start from the store, then bring it up to date with the workspace.
@@ -620,12 +750,13 @@ pub fn apply_changes(shared: &Shared, paths: &[String], events: &dyn Events) -> 
         let Engine { sem, graph, .. } = &mut *e;
         sem.resolve_files(graph, &affected);
     }
-    let epoch = e.graph.epoch;
     let layout = e.graph.layout_epoch != before;
     drop(e);
     if affected.len() > 2000 {
         resolve_in_batches(shared, &affected, events);
     }
+    // Read the epoch after re-resolution so notifications never go backwards.
+    let epoch = shared.read().graph.epoch;
     events.changed(epoch, layout);
     true
 }

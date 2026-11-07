@@ -1,13 +1,14 @@
 // The map view: tile streaming, scene assembly, input and the render loop.
 // Frames are drawn only when something changes; nothing animates on its own.
-import type { MapInfo, NodeInfo } from "../../protocol/generated/protocol.ts";
+import type { EdgesResult, MapInfo, NodeInfo } from "../../protocol/generated/protocol.ts";
 import type { HostToView, ViewTile } from "../../protocol/webview.ts";
 import { Camera } from "./camera.ts";
 import { Host } from "./host.ts";
+import { bundledCurve } from "./layout/bundle.ts";
 import { Canvas2DRenderer } from "./render/canvas2d.ts";
 import { GLRenderer } from "./render/gl.ts";
 import { readTheme, type Theme } from "./render/theme.ts";
-import type { Renderer, TileDraw } from "./render/types.ts";
+import type { Line, Renderer, TileDraw } from "./render/types.ts";
 import { buildLabels, buildOverlay, buildTileBatch, hereMarker, sortForPaint, WidthCache, type BaseStyle, type Outline } from "./scene.ts";
 import { decodeTile, KIND_DIR, KIND_FILE, TileCache, tileKey, type DecodedTile, type Item } from "./tiles.ts";
 import { Help } from "./ui/help.ts";
@@ -37,6 +38,9 @@ export class App {
   /** Bumped when fills change (theme, lens); tile batches rebuild lazily. */
   private styleVersion = 0;
   private frame = 0;
+  /** Dependency edges per node, fetched on demand for the selection, hover and pins. */
+  private readonly edgeSets = new Map<number, EdgesResult>();
+  private readonly edgePending = new Set<number>();
   private widths!: WidthCache;
   /** Tiles that arrived but are not decoded yet (decoded a few per frame). */
   private readonly inbox: { cache: TileCache; tile: ViewTile }[] = [];
@@ -137,7 +141,10 @@ export class App {
         if (m.state === "ready") void this.loadInfo();
         break;
       case "progress":
-        this.progress = m.phase === "idle" ? "" : `${phaseLabel(m.phase)} ${m.done.toLocaleString("en-US")} / ${m.total.toLocaleString("en-US")} files`;
+        // A finished phase shows nothing; incremental updates report progress without a
+        // closing "idle", so completion is judged by the counts themselves.
+        this.progress =
+          m.phase === "idle" || m.done >= m.total ? "" : `${phaseLabel(m.phase)} ${m.done.toLocaleString("en-US")} / ${m.total.toLocaleString("en-US")} files`;
         if (!this.info || this.info.files === 0) {
           if (m.phase !== "idle") this.setState(`Indexing · ${this.progress}`);
         }
@@ -177,6 +184,7 @@ export class App {
   private applyInfo(info: MapInfo): void {
     const first = !this.info;
     this.info = info;
+    if (info.phase === "idle") this.progress = "";
     this.updateZoomLimits();
     if (first) {
       const saved = this.host.state.view as { cx: number; cy: number; scale: number } | undefined;
@@ -197,6 +205,7 @@ export class App {
     void layout;
     this.stale = this.cache;
     this.cache = new TileCache();
+    this.edgeSets.clear();
     void this.loadInfo();
     this.invalidate();
   }
@@ -208,7 +217,17 @@ export class App {
   }
 
   private updateLegend(): void {
-    this.legend.set("Area = lines of code", this.info?.files ?? 0, this.progress || (this.follow ? "" : "follow off"));
+    const focus = this.selected ?? this.hover;
+    const set = focus !== null ? this.edgeSets.get(focus) : undefined;
+    let edges = "";
+    if (set) {
+      const out = set.edges.filter((e) => e.outgoing).length;
+      const inn = set.edges.length - out;
+      const more = set.total > set.edges.length ? ` (top ${set.edges.length} of ${set.total})` : "";
+      edges = `purple uses ${out} · orange used by ${inn}${more} · dashed = name-matched`;
+    }
+    const status = [this.progress, edges, this.follow ? "" : "follow off"].filter(Boolean).join(" · ");
+    this.legend.set("Area = lines of code", this.info?.files ?? 0, status);
   }
 
   // ---------------------------------------------------------------- tiles & scene
@@ -380,6 +399,65 @@ export class App {
     return out;
   }
 
+  /** Nodes whose edges are shown: the selection (or the hovered node), plus pins. */
+  private edgeSlots(): number[] {
+    const out = new Set<number>(this.pinned);
+    const focus = this.selected ?? this.hover;
+    if (focus !== null) out.add(focus);
+    return [...out];
+  }
+
+  private ensureEdges(slots: number[]): void {
+    for (const slot of slots) {
+      if (this.edgeSets.has(slot) || this.edgePending.has(slot)) continue;
+      this.edgePending.add(slot);
+      this.host
+        .request("node/edges", { slot, limit: 300 })
+        .then((r) => {
+          this.edgeSets.set(slot, r);
+          this.updateLegend();
+          this.invalidate();
+        })
+        .catch(() => {})
+        .finally(() => this.edgePending.delete(slot));
+    }
+  }
+
+  /** Bundled edge curves in screen space. Purple: this node uses; orange: used by. */
+  private edgeLines(): Line[] {
+    const slots = this.edgeSlots();
+    this.ensureEdges(slots);
+    const t = this.theme;
+    // Not blue: blue is too close to the accent, which only the selection may use.
+    // Purple/orange stay distinct for the common colour-vision deficiencies.
+    const total = slots.reduce((n, s) => n + (this.edgeSets.get(s)?.edges.length ?? 0), 0);
+    // Many lines: lower opacity, so dense bundles read as volume, not noise.
+    const alpha = Math.round(Math.max(70, Math.min(200, 200 * Math.sqrt(60 / Math.max(1, total)))));
+    const uses = [...t.categorical[3]!.slice(0, 3), alpha] as Line["color"];
+    const usedBy = [...t.categorical[1]!.slice(0, 3), alpha] as Line["color"];
+    const v = this.camera.view;
+    const hw = this.camera.width / 2;
+    const hh = this.camera.height / 2;
+    const out: Line[] = [];
+    for (const slot of slots) {
+      const set = this.edgeSets.get(slot);
+      if (!set) continue;
+      for (const e of set.edges) {
+        const world = bundledCurve(e.route);
+        if (world.length < 4) continue;
+        const points = new Array<number>(world.length);
+        for (let i = 0; i < world.length; i += 2) {
+          points[i] = (world[i]! - v.cx) * v.scale + hw;
+          points[i + 1] = (world[i + 1]! - v.cy) * v.scale + hh;
+        }
+        // Line style states certainty: dashed = name-matched, solid = confirmed, dotted = history.
+        const style = e.confidence === "semantic" ? 0 : e.confidence === "historical" ? 2 : 1;
+        out.push({ points, color: e.outgoing ? uses : usedBy, width: 1, style });
+      }
+    }
+    return out;
+  }
+
   invalidate(): void {
     if (this.frame) return;
     this.frame = requestAnimationFrame((now) => this.draw(now));
@@ -401,7 +479,7 @@ export class App {
       ? buildLabels(this.labelCandidates(), { camera: this.camera, theme: this.theme, measure: (t) => this.widths.width(t), max: 400 })
       : [];
     const t2 = performance.now();
-    const lines = hereMarker(this.findItem(this.here), this.camera, this.theme);
+    const lines = [...this.edgeLines(), ...hereMarker(this.findItem(this.here), this.camera, this.theme)];
     const b = this.camera.bounds();
     const outlines = this.overlay();
     const overlay = outlines.length ? buildOverlay(outlines, b.x, b.y, 256 / this.camera.view.scale) : null;
@@ -438,6 +516,7 @@ export class App {
       if (this.history.length > 200) this.history.shift();
     }
     this.selected = slot;
+    this.updateLegend();
     this.host.post({ type: "select", slot });
     this.invalidate();
   }
@@ -631,6 +710,7 @@ export class App {
   private setHover(slot: number | null): void {
     if (slot === this.hover) return;
     this.hover = slot;
+    if (this.selected === null) this.updateLegend();
     this.invalidate();
   }
 
@@ -736,6 +816,7 @@ export function hoverLines(n: NodeInfo): { title: string; lines: string[] } {
   const lines = [`${kind} · ${loc}${n.generated ? " · generated" : ""}${n.test ? " · test" : ""}`];
   if (n.kind === "dir") lines[0] = `directory · ${n.files.toLocaleString("en-US")} files · ${loc}`;
   lines.push(n.kind === "file" || n.kind === "dir" ? n.path || "/" : `${n.path}:${n.startLine}`);
+  if (n.inCount || n.outCount) lines.push(`used by ${n.inCount.toLocaleString("en-US")} · uses ${n.outCount.toLocaleString("en-US")}`);
   return { title: n.kind === "file" || n.kind === "dir" ? n.name : n.qualified, lines };
 }
 

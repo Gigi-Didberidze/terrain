@@ -5,7 +5,11 @@ import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-const [base = "http://localhost:4710", out = "shots", ...themes] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const selIdx = args.indexOf("--select");
+// --select <search query>: select the first hit (shows its edges) before the dark screenshot.
+const select = selIdx >= 0 ? args.splice(selIdx, 2)[1] : null;
+const [base = "http://localhost:4710", out = "shots", ...themes] = args;
 mkdirSync(out, { recursive: true });
 const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
@@ -23,6 +27,15 @@ for (const theme of themes.length ? themes : ["dark", "light", "hc"]) {
   }, null, { timeout: 120000, polling: 250 });
   await page.waitForTimeout(800);
   await page.screenshot({ path: join(out, `map-${theme}.png`) });
+  if (theme === "dark" && select) {
+    await page.evaluate(async (q) => {
+      const r = await window.__compass.rpc("search", { query: q, limit: 1 });
+      const hit = r.result.hits[0];
+      if (hit) await window.__compassApp.reveal(hit.slot, true);
+    }, select);
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: join(out, `map-${theme}-selected.png`) });
+  }
   if (theme === "dark") {
     // Zoom into the upper-left quadrant to check semantic zoom and labels.
     await page.mouse.move(330, 260);

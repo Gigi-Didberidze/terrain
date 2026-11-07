@@ -3,8 +3,8 @@
 import type { MapInfo, NodeInfo, Requests } from "./generated/protocol.ts";
 
 /** Indexer methods the webview may call through the host. */
-export type ViewRequestMethod = "map/info" | "map/tiles" | "node/info" | "node/locate" | "search";
-export const VIEW_REQUEST_METHODS: readonly ViewRequestMethod[] = ["map/info", "map/tiles", "node/info", "node/locate", "search"];
+export type ViewRequestMethod = "map/info" | "map/tiles" | "node/info" | "node/locate" | "node/edges" | "search";
+export const VIEW_REQUEST_METHODS: readonly ViewRequestMethod[] = ["map/info", "map/tiles", "node/info", "node/locate", "node/edges", "search"];
 
 export type HostToView =
   | { type: "status"; state: "starting" | "ready" | "error"; text: string }
