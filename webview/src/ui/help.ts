@@ -3,10 +3,10 @@
 export const KEYS: [string, string][] = [
   ["/", "Search symbols and files"],
   ["Enter", "Open selected in editor"],
-  ["Arrow keys", "Move selection to a neighbouring tile"],
+  ["Arrow keys", "Move selection to a neighbouring tile (Map) or along edges (Neighbourhood)"],
   ["+  -  0", "Zoom in / out / fit"],
   ["1 – 6", "Switch lens"],
-  ["M  N  P", "Map / Neighbourhood / Path view"],
+  ["M  N  P", "Map / Neighbourhood of selection / Path from pinned (or previous) to selection"],
   ["F", "Toggle follow mode"],
   ["Backspace", "Back in selection history"],
   [".", "Pin selection"],

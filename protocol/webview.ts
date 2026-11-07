@@ -11,7 +11,10 @@ export type ViewRequestMethod =
   | "node/edges"
   | "search"
   | "history/summary"
-  | "history/file";
+  | "history/file"
+  | "view/neighbourhood"
+  | "view/path"
+  | "review/summary";
 export const VIEW_REQUEST_METHODS: readonly ViewRequestMethod[] = [
   "map/info",
   "map/tiles",
@@ -21,6 +24,9 @@ export const VIEW_REQUEST_METHODS: readonly ViewRequestMethod[] = [
   "search",
   "history/summary",
   "history/file",
+  "view/neighbourhood",
+  "view/path",
+  "review/summary",
 ];
 
 export type HostToView =
@@ -33,7 +39,10 @@ export type HostToView =
   /** The active editor moved: the "you are here" node (null when the file is not on the map). */
   | { type: "follow"; node: NodeInfo | null }
   | { type: "reveal"; slot: number }
-  | { type: "command"; command: "fit" | "toggleFollow" | "search" };
+  | { type: "command"; command: "fit" | "toggleFollow" | "search" | "map" | "exportSvg" }
+  | { type: "command"; command: "neighbourhood"; slot: number }
+  | { type: "command"; command: "path"; from: number; to: number }
+  | { type: "command"; command: "lens"; lens: number };
 
 export type ViewToHost =
   | { type: "ready" }
@@ -41,7 +50,9 @@ export type ViewToHost =
   | { type: "open"; slot: number }
   | { type: "select"; slot: number | null }
   | { type: "follow"; enabled: boolean }
-  | { type: "log"; level: "info" | "error"; text: string };
+  | { type: "log"; level: "info" | "error"; text: string }
+  /** Answer to the exportSvg command: the current view as an SVG document. */
+  | { type: "svg"; svg: string };
 
 /** Tile as delivered to the webview. */
 export interface ViewTile {

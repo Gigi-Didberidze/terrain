@@ -21,6 +21,7 @@ const theme: Theme = {
   churnHigh: [255, 128, 0, 255],
   coupling: [255, 255, 0, 255],
   hiddenCoupling: [255, 0, 0, 255],
+  changed: [255, 128, 0, 255],
   editorFont: "monospace",
   uiFont: "sans-serif",
 };

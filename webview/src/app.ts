@@ -1,16 +1,18 @@
 // The map view: tile streaming, scene assembly, input and the render loop.
 // Frames are drawn only when something changes; nothing animates on its own.
-import type { EdgesResult, HistorySummary, MapInfo, NodeInfo } from "../../protocol/generated/protocol.ts";
+import type { EdgesResult, HistorySummary, MapInfo, NodeInfo, ReviewResult } from "../../protocol/generated/protocol.ts";
 import type { HostToView, ViewTile } from "../../protocol/webview.ts";
 import { Camera } from "./camera.ts";
+import { frameToSvg } from "./export/svg.ts";
+import { GraphView, neighbourhoodModel, pathModel } from "./graph.ts";
 import { Host } from "./host.ts";
 import { bundledCurve } from "./layout/bundle.ts";
 import { Canvas2DRenderer } from "./render/canvas2d.ts";
 import { GLRenderer } from "./render/gl.ts";
 import { readTheme, type Theme } from "./render/theme.ts";
-import type { Line, Renderer, TileDraw } from "./render/types.ts";
+import type { Frame, Line, Renderer, TileDraw } from "./render/types.ts";
 import { buildLabels, buildOverlay, buildTileBatch, hereMarker, sortForPaint, WidthCache, type BaseStyle, type Outline } from "./scene.ts";
-import { decodeTile, KIND_DIR, KIND_FILE, TileCache, tileKey, type DecodedTile, type Item } from "./tiles.ts";
+import { decodeTile, FLAG_CHANGED, KIND_DIR, KIND_FILE, TileCache, tileKey, type DecodedTile, type Item } from "./tiles.ts";
 import { Help } from "./ui/help.ts";
 import { couplingMuted, LENSES, lensColor, shortAuthor, type CouplingFocus, type LensId } from "./lenses.ts";
 import { HoverCard } from "./ui/hover.ts";
@@ -47,6 +49,15 @@ export class App {
   /** Coupling lens: the selected file and its co-change partners. */
   private coupling: CouplingFocus | null = null;
   private couplingSeq = 0;
+  /** What the branch changed (Change lens); null outside git. */
+  private review: ReviewResult | null = null;
+  /** Map, or the Neighbourhood / Path diagram. */
+  private mode: "map" | "graph" = "map";
+  private readonly graph = new GraphView();
+  private graphSeq = 0;
+  private followTimer = 0;
+  /** Last frame handed to the renderer (SVG export draws the same). */
+  private lastFrame: Frame | null = null;
   /** Dependency edges per node, fetched on demand for the selection, hover and pins. */
   private readonly edgeSets = new Map<number, EdgesResult>();
   private readonly edgePending = new Set<number>();
@@ -92,7 +103,7 @@ export class App {
     this.camera.bottomInset = 24;
     this.follow = this.host.state.follow !== false;
     const savedLens = Number(this.host.state.lens);
-    if (savedLens >= 1 && savedLens <= 5) this.lens = savedLens as LensId;
+    if (savedLens >= 1 && savedLens <= 6) this.lens = savedLens as LensId;
 
     this.initRenderer();
     this.bindInput();
@@ -128,6 +139,7 @@ export class App {
     const r = this.root.getBoundingClientRect();
     const fit = this.camera.width <= 1;
     this.camera.resize(r.width, r.height);
+    this.graph.camera.resize(r.width, r.height);
     this.renderer.resize(r.width, r.height, window.devicePixelRatio || 1);
     this.renderer.setFont(this.theme.editorFont);
     if (fit && this.info) this.fit(false);
@@ -180,6 +192,14 @@ export class App {
         if (m.command === "fit") this.fit(true);
         else if (m.command === "toggleFollow") this.toggleFollow();
         else if (m.command === "search") this.search.show();
+        else if (m.command === "map") this.showMap();
+        else if (m.command === "exportSvg") this.exportSvg();
+        else if (m.command === "neighbourhood") void this.openNeighbourhood(m.slot);
+        else if (m.command === "path") void this.openPath(m.from, m.to);
+        else if (m.command === "lens") {
+          this.showMap();
+          this.setLens(m.lens as LensId);
+        }
         break;
       case "response":
         break;
@@ -196,7 +216,17 @@ export class App {
     void this.loadHistory();
   }
 
+  private async loadReview(): Promise<void> {
+    try {
+      this.review = await this.host.request("review/summary", { limit: 0 });
+      this.updateLegend();
+    } catch {
+      this.review = null;
+    }
+  }
+
   private async loadHistory(): Promise<void> {
+    void this.loadReview();
     try {
       const h = await this.host.request("history/summary", null);
       const changed = h.head !== this.historySummary?.head || h.commits !== this.historySummary?.commits;
@@ -261,6 +291,7 @@ export class App {
     this.edgeSets.clear();
     void this.loadInfo();
     if (this.lens === 4) void this.loadCoupling();
+    if (this.mode === "graph") void this.refreshGraph();
     this.invalidate();
   }
 
@@ -292,6 +323,17 @@ export class App {
     } else if (this.lens === 5 && this.historySummary) {
       const c = this.theme.categorical;
       swatches = this.historySummary.topAuthors.map((a, i) => ({ color: css(c[i % c.length]!), label: shortAuthor(a) }));
+    }
+    if (this.lens === 6 && this.review) {
+      const r = this.review;
+      lensNote = r.pathsTotal
+        ? `${r.changedTotal.toLocaleString("en-US")} changed${r.baseName ? ` vs ${r.baseName}` : ""} · ${r.blastTotal.toLocaleString("en-US")} depend on them`
+        : `nothing changed${r.baseName ? ` vs ${r.baseName}` : ""}`;
+    }
+    if (this.mode === "graph" && this.graph.model) {
+      const status = [this.lensNotice, this.progress, this.follow ? "" : "follow off"].filter(Boolean).join(" · ");
+      this.legend.set(`${this.graph.model.summary} · purple uses, orange used by · dashed = name-matched, solid = confirmed`, this.info?.files ?? 0, status);
+      return;
     }
     const status = [lensNote, this.lensNotice, this.progress, edges, this.follow ? "" : "follow off"].filter(Boolean).join(" · ");
     this.legend.set(`${LENSES[this.lens].legend} · area = lines`, this.info?.files ?? 0, status, swatches);
@@ -466,6 +508,9 @@ export class App {
       const it = this.findItem(slot);
       if (it) out.push({ it, color, width });
     };
+    if (this.lens === 6) {
+      for (const it of this.visibleItems()) if (it.kind === KIND_FILE && it.flags & FLAG_CHANGED) out.push({ it, color: t.changed, width: 1.5 });
+    }
     add(this.hover, t.muted, 1);
     for (const p of this.pinned) add(p, t.foreground, 1);
     add(this.here, t.accent, 2);
@@ -543,6 +588,15 @@ export class App {
   readonly breakdown: [number, number, number][] = [];
 
   private draw(now: number): void {
+    if (this.mode === "graph") {
+      this.frame = 0;
+      const animating = this.graph.camera.step(now);
+      const f = this.graph.frame(this.theme, this.selected, this.hover, this.pinned);
+      this.renderer.draw(f);
+      this.lastFrame = f;
+      if (animating) this.invalidate();
+      return;
+    }
     const t0 = performance.now();
     this.frame = 0;
     const animating = this.camera.step(now);
@@ -557,7 +611,9 @@ export class App {
     const b = this.camera.bounds();
     const outlines = this.overlay();
     const overlay = outlines.length ? buildOverlay(outlines, b.x, b.y, 256 / this.camera.view.scale) : null;
-    this.renderer.draw({ view: this.camera.view, background: this.theme.background, tiles, overlay, labels, lines });
+    const frame: Frame = { view: this.camera.view, background: this.theme.background, tiles, overlay, labels, lines };
+    this.renderer.draw(frame);
+    this.lastFrame = frame;
     const t3 = performance.now();
     this.frames.push([now, t3 - t0]);
     this.breakdown.push([t1 - t0, t2 - t1, t3 - t2]);
@@ -576,6 +632,11 @@ export class App {
   // ---------------------------------------------------------------- navigation
 
   private fit(animate: boolean): void {
+    if (this.mode === "graph") {
+      this.graph.fit(animate);
+      this.invalidate();
+      return;
+    }
     if (!this.info) return;
     const v = this.camera.fitView({ x: 0, y: 0, w: this.info.worldW, h: this.info.worldH }, 0.02);
     if (animate) this.camera.animateTo(v);
@@ -642,6 +703,10 @@ export class App {
       this.flashNotice(`${def.name} lens needs ${def.pending}`);
       return;
     }
+    if (def.review && !this.review?.available) {
+      this.flashNotice(`${def.name} lens needs a git repository with a base branch (main or master)`);
+      return;
+    }
     if (def.history && !this.historySummary?.available) {
       this.flashNotice(
         this.info?.phase !== "idle"
@@ -698,6 +763,10 @@ export class App {
     }
     this.pendingFollow = null;
     this.here = node?.slot ?? null;
+    if (this.mode === "graph" && this.follow && node && this.graph.model?.kind === "neighbourhood" && node.slot !== this.graph.model.focus) {
+      clearTimeout(this.followTimer);
+      this.followTimer = window.setTimeout(() => void this.openNeighbourhood(node.slot), 250);
+    }
     if (this.follow && node?.rect) this.showRect(node.rect, false);
     this.invalidate();
   }
@@ -707,6 +776,107 @@ export class App {
     this.host.post({ type: "follow", enabled: this.follow });
     this.updateLegend();
     this.saveViewSoon();
+  }
+
+  /** Slot under a screen point, in either mode. */
+  private hitSlot(sx: number, sy: number): number | null {
+    if (this.mode === "graph") return this.graph.hit(sx, sy);
+    return this.hit(sx, sy)?.slot ?? null;
+  }
+
+  /** The camera of the current mode. */
+  private get cam(): Camera {
+    return this.mode === "graph" ? this.graph.camera : this.camera;
+  }
+
+  // ---------------------------------------------------------------- views
+
+  private showMap(): void {
+    if (this.mode === "map") return;
+    this.mode = "map";
+    this.styleVersion++;
+    // Keep the map where the reader left it; only bring the selection into view if it is off-screen.
+    const sel = this.selected;
+    if (sel !== null)
+      void this.host
+        .request("node/info", { slot: sel })
+        .then((n) => n.rect && this.showRect(n.rect, false))
+        .catch(() => {});
+    this.updateLegend();
+    this.invalidate();
+  }
+
+  /** Neighbourhood view centred on `slot`. */
+  async openNeighbourhood(slot: number | null): Promise<void> {
+    if (slot === null) {
+      this.flashNotice("Select something first (click, search with /, or put the cursor in it)");
+      return;
+    }
+    const seq = ++this.graphSeq;
+    try {
+      const r = await this.host.request("view/neighbourhood", { slot });
+      if (seq !== this.graphSeq) return;
+      // A new centre gets a fresh fit; re-opening the same one keeps the reader's zoom.
+      const newCentre = this.mode !== "graph" || this.graph.model?.focus !== slot;
+      this.graph.set(neighbourhoodModel(r), (t) => this.renderer.measure(t, 11));
+      this.mode = "graph";
+      if (this.selected !== slot) this.select(slot);
+      if (newCentre) this.graph.fit(false);
+      this.updateLegend();
+      this.invalidate();
+    } catch {
+      this.flashNotice("That node is no longer on the map");
+    }
+  }
+
+  /** Path view: the shortest dependency chains between two nodes. */
+  async openPath(from: number, to: number): Promise<void> {
+    const seq = ++this.graphSeq;
+    try {
+      const r = await this.host.request("view/path", { from, to });
+      if (seq !== this.graphSeq) return;
+      this.graph.set(pathModel(r), (t) => this.renderer.measure(t, 11));
+      this.mode = "graph";
+      this.graph.fit(false);
+      this.updateLegend();
+      this.invalidate();
+    } catch {
+      this.flashNotice("One of the two nodes is no longer on the map");
+    }
+  }
+
+  /** Re-reads the diagram after the graph changed. */
+  private async refreshGraph(): Promise<void> {
+    const m = this.graph.model;
+    if (!m) return;
+    if (m.kind === "neighbourhood") {
+      const seq = ++this.graphSeq;
+      try {
+        const r = await this.host.request("view/neighbourhood", { slot: m.focus });
+        if (seq === this.graphSeq) this.graph.set(neighbourhoodModel(r), (t) => this.renderer.measure(t, 11));
+      } catch {
+        this.showMap();
+      }
+      this.invalidate();
+    }
+  }
+
+  /** P: path from the most recent pin (or the previous selection) to the selection. */
+  private pathFromContext(): void {
+    const to = this.selected;
+    const pins = [...this.pinned].filter((p) => p !== to);
+    const from = pins.length ? pins[pins.length - 1]! : [...this.history].reverse().find((h) => h !== to);
+    if (to === null || from === undefined) {
+      this.flashNotice("Path: pin a node with . then select another, and press P");
+      return;
+    }
+    void this.openPath(from, to);
+  }
+
+  private exportSvg(): void {
+    if (!this.lastFrame) return;
+    const svg = frameToSvg(this.lastFrame, this.cam.width, this.cam.height, this.theme.editorFont);
+    this.host.post({ type: "svg", svg });
   }
 
   private hit(sx: number, sy: number): Item | undefined {
@@ -720,6 +890,16 @@ export class App {
       }
     }
     return best;
+  }
+
+  /** Arrow keys: along edges in the diagram, between neighbouring tiles on the map. */
+  private move(dx: number, dy: number): void {
+    if (this.mode === "graph") {
+      const next = this.graph.move(this.selected ?? this.graph.model?.focus ?? -1, dx, dy);
+      if (next !== null) this.select(next);
+      return;
+    }
+    this.moveSelection(dx, dy);
   }
 
   /** Arrow-key navigation: nearest visible item of the same kind and depth in that direction. */
@@ -765,8 +945,8 @@ export class App {
         e.preventDefault();
         const r = c.getBoundingClientRect();
         const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-        if (e.ctrlKey || !e.shiftKey) this.camera.zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-dy * 0.0022));
-        else this.camera.panBy(-e.deltaX, -e.deltaY);
+        if (e.ctrlKey || !e.shiftKey) this.cam.zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-dy * 0.0022));
+        else this.cam.panBy(-e.deltaX, -e.deltaY);
         this.invalidate();
       },
       { passive: false },
@@ -784,7 +964,7 @@ export class App {
         const dy = e.clientY - drag.y;
         if (drag.moved || Math.abs(dx) + Math.abs(dy) > 3) {
           drag.moved = true;
-          this.camera.panBy(dx, dy);
+          this.cam.panBy(dx, dy);
           drag.x = e.clientX;
           drag.y = e.clientY;
           this.hoverCard.hide();
@@ -799,11 +979,15 @@ export class App {
       drag = undefined;
       if (wasDrag) return;
       const r = c.getBoundingClientRect();
-      const it = this.hit(e.clientX - r.left, e.clientY - r.top);
-      this.select(it?.slot ?? null);
+      this.select(this.hitSlot(e.clientX - r.left, e.clientY - r.top));
     });
     c.addEventListener("dblclick", (e) => {
       const r = c.getBoundingClientRect();
+      if (this.mode === "graph") {
+        const slot = this.graph.hit(e.clientX - r.left, e.clientY - r.top);
+        if (slot !== null && this.graph.node(slot)?.ref.kind !== "dir") this.host.post({ type: "open", slot });
+        return;
+      }
       const it = this.hit(e.clientX - r.left, e.clientY - r.top);
       if (it && it.kind !== KIND_DIR) this.host.post({ type: "open", slot: it.slot });
       else if (it) this.showRect(it, true);
@@ -823,17 +1007,17 @@ export class App {
   }
 
   private onHover(sx: number, sy: number, cx: number, cy: number): void {
-    const it = this.hit(sx, sy);
-    this.setHover(it?.slot ?? null);
+    const slot = this.hitSlot(sx, sy);
+    this.setHover(slot);
     clearTimeout(this.hoverTimer);
-    if (!it) {
+    if (slot === null) {
       this.hoverCard.hide();
       return;
     }
     const seq = ++this.hoverSeq;
     this.hoverTimer = window.setTimeout(async () => {
       try {
-        const n = await this.host.request("node/info", { slot: it.slot });
+        const n = await this.host.request("node/info", { slot });
         if (seq !== this.hoverSeq) return;
         this.hoverCard.show(hoverLines(n), cx, cy);
       } catch {
@@ -860,11 +1044,23 @@ export class App {
         break;
       case "+":
       case "=":
-        this.camera.animateTo({ ...this.camera.view, scale: this.camera.view.scale * 2 });
+        this.cam.animateTo(this.cam.clamp({ ...this.cam.view, scale: this.cam.view.scale * 2 }));
         break;
       case "-":
       case "_":
-        this.camera.animateTo({ ...this.camera.view, scale: this.camera.view.scale / 2 });
+        this.cam.animateTo(this.cam.clamp({ ...this.cam.view, scale: this.cam.view.scale / 2 }));
+        break;
+      case "m":
+      case "M":
+        this.showMap();
+        break;
+      case "n":
+      case "N":
+        void this.openNeighbourhood(this.selected ?? this.here);
+        break;
+      case "p":
+      case "P":
+        this.pathFromContext();
         break;
       case "0":
         this.fit(true);
@@ -875,6 +1071,8 @@ export class App {
       case "4":
       case "5":
       case "6":
+        // Lenses colour the map: switching one shows it.
+        this.showMap();
         this.setLens(Number(k) as LensId);
         break;
       case "f":
@@ -886,7 +1084,10 @@ export class App {
         break;
       case "Backspace": {
         const prev = this.history.pop();
-        if (prev !== undefined) {
+        if (prev !== undefined && this.mode === "graph") {
+          if (this.graph.has(prev)) this.select(prev, false);
+          else void this.openNeighbourhood(prev);
+        } else if (prev !== undefined) {
           this.select(prev, false);
           const it = this.findItem(prev);
           if (it) this.showRect(it, false);
@@ -901,16 +1102,16 @@ export class App {
               }
         break;
       case "ArrowLeft":
-        this.moveSelection(-1, 0);
+        this.move(-1, 0);
         break;
       case "ArrowRight":
-        this.moveSelection(1, 0);
+        this.move(1, 0);
         break;
       case "ArrowUp":
-        this.moveSelection(0, -1);
+        this.move(0, -1);
         break;
       case "ArrowDown":
-        this.moveSelection(0, 1);
+        this.move(0, 1);
         break;
       default:
         handled = false;

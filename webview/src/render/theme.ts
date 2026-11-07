@@ -23,6 +23,8 @@ export interface Theme {
   /** Coupling lens: partners with a code link, and hidden dependencies (no code link). */
   coupling: RGBA;
   hiddenCoupling: RGBA;
+  /** Change lens: changed files (strong) and their blast radius (light tint of the same hue). */
+  changed: RGBA;
   editorFont: string;
   uiFont: string;
 }
@@ -139,6 +141,7 @@ export function readTheme(): Theme {
     churnHigh: chart("orange", "#d18616"),
     coupling: chart("yellow", "#cca700"),
     hiddenCoupling: chart("red", "#f14c4c"),
+    changed: chart("orange", "#d18616"),
     editorFont: cs.getPropertyValue("--vscode-editor-font-family").trim() || "monospace",
     uiFont: cs.getPropertyValue("--vscode-font-family").trim() || "sans-serif",
   };

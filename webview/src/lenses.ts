@@ -1,7 +1,7 @@
 // Lenses colour the map by exactly one measure at a time (keys 1–6). Colours come from theme
 // tokens; the legend always names the measure and its unit.
 import { mix, ramp, type RGBA, type Theme } from "./render/theme.ts";
-import { KIND_DIR, KIND_FILE, type Item } from "./tiles.ts";
+import { FLAG_BLAST, FLAG_CHANGED, KIND_DIR, KIND_FILE, type Item } from "./tiles.ts";
 
 export type LensId = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -12,6 +12,8 @@ export interface LensDef {
   legend: string;
   /** Needs git history (lenses 3–5 are unavailable outside a repository). */
   history?: boolean;
+  /** Needs a base branch or working-tree changes (lens 6). */
+  review?: boolean;
   /** Milestone that brings it, when not available yet. */
   pending?: string;
 }
@@ -22,7 +24,7 @@ export const LENSES: Record<LensId, LensDef> = {
   3: { id: 3, name: "Churn", legend: "Churn: stronger = more commits in the last 90 days (log scale)", history: true },
   4: { id: 4, name: "Coupling", legend: "Coupling: files that change with the selection; red = no code link (hidden dependency)", history: true },
   5: { id: 5, name: "Ownership", legend: "Ownership: top author by commits", history: true },
-  6: { id: 6, name: "Change", legend: "Change: files changed on this branch and their blast radius", pending: "review mode (M5)" },
+  6: { id: 6, name: "Change", legend: "Change: changed on this branch (strong), depends on a change (light)", review: true },
 };
 
 /** A co-change partner of the selected file (Coupling lens). */
@@ -68,6 +70,11 @@ export function lensColor(lens: LensId, it: Item, theme: Theme, coupling?: Coupl
       if (!p) return null;
       const c = p.hidden ? theme.hiddenCoupling : theme.coupling;
       return mix(base, c, (isFile ? 0.25 : 0.35) + 0.5 * Math.min(1, p.degree));
+    }
+    case 6: {
+      if (it.flags & FLAG_CHANGED) return mix(base, theme.changed, isFile ? 0.65 : 0.75);
+      if (it.flags & FLAG_BLAST) return mix(base, theme.changed, isFile ? 0.2 : 0.25);
+      return null;
     }
     case 5: {
       if (!it.owner) return null;
