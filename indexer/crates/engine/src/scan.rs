@@ -289,6 +289,7 @@ pub fn is_data_file(path: &str, loc: u32) -> bool {
         "geojson",
         "topojson",
         "svg",
+        "snap",
         "pbf",
         "mtx",
         "arff",

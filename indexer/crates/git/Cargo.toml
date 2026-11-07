@@ -5,3 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+gix = { version = "0.90.0", features = ["blame"] }
+rayon = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

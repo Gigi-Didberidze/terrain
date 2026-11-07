@@ -53,6 +53,7 @@ fn main() {
         Some("imports") => return cli::imports(&args[2..]),
         Some("analyse") => return cli::analyse(&args[2..]),
         Some("cycles") => return cli::cycles(&args[2..]),
+        Some("history") => return cli::history(&args[2..]),
         _ => {}
     }
 

@@ -3,6 +3,7 @@
 
 pub mod analysis;
 pub mod context;
+pub mod history;
 pub mod imports;
 pub mod project;
 pub mod resolve;
@@ -96,6 +97,20 @@ pub struct Engine {
     analysis_gen: Arc<std::sync::atomic::AtomicU64>,
     /// Complexity per file, keyed by content hash (computed on demand).
     complexity_cache: Mutex<ComplexityCache>,
+    /// Latest git history signals; replaced atomically after each mining run.
+    pub history: Arc<history::History>,
+    /// Mined commits and the repository; one mining run at a time.
+    git: Arc<Mutex<GitState>>,
+}
+
+/// Commits mined so far (newest first) and the head they reach.
+#[derive(Default)]
+struct GitState {
+    opened: bool,
+    repo: Option<compass_git::Repo>,
+    loaded: bool,
+    head: Option<String>,
+    commits: Vec<compass_core::store::CommitRow>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -159,6 +174,8 @@ impl Engine {
             analysis: Arc::new(analysis::Analysis::default()),
             analysis_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             complexity_cache: Mutex::new(std::collections::HashMap::new()),
+            history: Arc::new(history::History::default()),
+            git: Arc::new(Mutex::new(GitState::default())),
         }
     }
 
@@ -328,12 +345,88 @@ impl Engine {
         self.with_layout(|layout| {
             let items = tiles::query(&self.graph, layout, z, x, y, tiles::TILE_ITEM_LIMIT);
             let a = &self.analysis;
-            tiles::pack(&self.graph, layout, z, x, y, &items, |slot| LensValues {
-                community: a.colour_of(slot),
-                load: a.load_of(slot),
-                ..LensValues::default()
+            let h = &self.history;
+            tiles::pack(&self.graph, layout, z, x, y, &items, |slot| {
+                let path = self.file_path_of(slot).unwrap_or("");
+                LensValues {
+                    community: a.colour_of(slot),
+                    load: a.load_of(slot),
+                    owner: h.owner_lens(path),
+                    churn: h.churn_lens(path),
+                }
             })
         })
+    }
+
+    /// The file a node belongs to (itself for files), as a path; None for directories.
+    pub fn file_path_of(&self, slot: u32) -> Option<&str> {
+        let n = self.graph.get(slot)?;
+        match n.kind {
+            NodeKind::Dir => None,
+            NodeKind::File => self.graph.path(slot),
+            _ => self.graph.path(n.file),
+        }
+    }
+
+    /// Co-change partners of a file that still exist: (partner, its slot, statically linked).
+    /// Not linked means a hidden dependency.
+    pub fn partners(&self, path: &str) -> Vec<(history::Partner, u32, bool)> {
+        let Some(slot) = self.graph.slot_of_path(path) else {
+            return Vec::new();
+        };
+        self.history
+            .partners(path)
+            .iter()
+            .filter_map(|p| {
+                let other = self.graph.slot_of_path(&p.path)?;
+                Some((p.clone(), other, self.analysis.linked(slot, other)))
+            })
+            .collect()
+    }
+
+    /// Coupled file pairs with no static edge between them, best evidence first (degree weighted
+    /// by shared commits, so 18 shared commits outrank 5). Data and generated files are left out:
+    /// snapshots and translations change together by construction.
+    pub fn hidden_pairs(&self, limit: usize) -> Vec<(u32, u32, history::Partner)> {
+        let quiet = |s: u32| self.graph.node(s).flags & (flags::DATA | flags::GENERATED) != 0;
+        let mut out = Vec::new();
+        for (path, partners) in &self.history.coupling {
+            let Some(a) = self.graph.slot_of_path(path) else {
+                continue;
+            };
+            for p in partners {
+                if path.as_str() >= p.path.as_str() {
+                    continue; // each pair once
+                }
+                let Some(b) = self.graph.slot_of_path(&p.path) else {
+                    continue;
+                };
+                if !quiet(a) && !quiet(b) && !self.analysis.linked(a, b) {
+                    out.push((a, b, p.clone()));
+                }
+            }
+        }
+        let evidence = |p: &history::Partner| p.degree * p.shared as f32 / (p.shared as f32 + 5.0);
+        out.sort_by(|x, y| {
+            evidence(&y.2)
+                .total_cmp(&evidence(&x.2))
+                .then(y.2.shared.cmp(&x.2.shared))
+                .then(x.0.cmp(&y.0))
+                .then(x.1.cmp(&y.1))
+        });
+        out.truncate(limit);
+        out
+    }
+
+    /// Lines per author for one file at HEAD (blame), largest first.
+    pub fn blame(&self, path: &str) -> Vec<(String, u32)> {
+        let git = self.git.lock();
+        let Some(repo) = &git.repo else {
+            return Vec::new();
+        };
+        let authors = &self.history.authors;
+        repo.blame(path, &|id| authors.get(id).cloned())
+            .unwrap_or_default()
     }
 
     pub fn node_info(&self, slot: u32) -> Option<NodeInfo> {
@@ -700,6 +793,10 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
     // Analyse: metrics over the resolved graph, computed under the read lock.
     set_phase(shared, Phase::Analyse);
     run_analysis(shared, events);
+
+    // History: mine git (incrementally after the first run), then re-cluster with co-change.
+    set_phase(shared, Phase::History);
+    run_history(shared, events);
     if trace {
         let a = shared.read().analysis.clone();
         eprintln!(
@@ -832,7 +929,21 @@ pub fn apply_changes(shared: &Shared, paths: &[String], events: &dyn Events) -> 
 pub fn run_analysis(shared: &Shared, events: &dyn Events) {
     let a = {
         let e = shared.read();
-        analysis::analyse(&e.graph)
+        let mut cochange = Vec::new();
+        for (path, partners) in &e.history.coupling {
+            let Some(a) = e.graph.slot_of_path(path) else {
+                continue;
+            };
+            for p in partners {
+                if path.as_str() < p.path.as_str() {
+                    if let Some(b) = e.graph.slot_of_path(&p.path) {
+                        cochange.push((a, b, p.degree));
+                    }
+                }
+            }
+        }
+        cochange.sort_by_key(|&(a, b, _)| (a, b));
+        analysis::analyse(&e.graph, &cochange)
     };
     let mut e = shared.write();
     e.analysis = Arc::new(a);
@@ -840,6 +951,130 @@ pub fn run_analysis(shared: &Shared, events: &dyn Events) {
     drop(e);
     // Lens colours changed: tiles must be refetched (geometry did not move).
     events.changed(epoch, false);
+}
+
+/// Brings git history up to date (everything on the first run, new commits afterwards) and
+/// re-clusters with the new co-change weights. Returns false when there is no repository or
+/// nothing changed. Mining runs without the engine lock; one run at a time.
+pub fn run_history(shared: &Shared, events: &dyn Events) -> bool {
+    let t0 = Instant::now();
+    let trace = std::env::var_os("COMPASS_TRACE").is_some();
+    let git = shared.read().git.clone();
+    let mut git = git.lock();
+    if !git.opened {
+        git.opened = true;
+        git.repo = compass_git::Repo::open(&shared.read().root);
+    }
+    if git.repo.is_none() {
+        return false;
+    }
+    if !git.loaded {
+        git.loaded = true;
+        let e = shared.read();
+        if let Some(store) = &e.store {
+            let store = store.lock();
+            git.head = store
+                .meta("git.head")
+                .ok()
+                .flatten()
+                .filter(|h| !h.is_empty());
+            git.commits = store.load_commits().unwrap_or_default();
+            if git.commits.is_empty() {
+                git.head = None;
+            }
+        }
+    }
+    let computed = shared.read().history.head.is_some();
+    let mined = {
+        let repo = git.repo.as_ref().unwrap();
+        match repo.mine(git.head.as_deref(), &|done, total| {
+            events.progress(Phase::History, done as u64, total as u64)
+        }) {
+            Ok(m) => m,
+            Err(err) => {
+                eprintln!("history mining failed: {err}");
+                return false;
+            }
+        }
+    };
+    let changed = !mined.commits.is_empty() || !mined.dropped.is_empty() || mined.replace;
+    if !changed && computed {
+        return false;
+    }
+    let rows: Vec<compass_core::store::CommitRow> = mined
+        .commits
+        .into_iter()
+        .map(|c| compass_core::store::CommitRow {
+            id: c.id,
+            time: c.time,
+            author: c.author,
+            merge: c.merge,
+            files: c.files,
+        })
+        .collect();
+    let mine_ms = ms(t0);
+    if changed {
+        let e = shared.read();
+        if let Some(store) = &e.store {
+            let mut store = store.lock();
+            let r = (|| {
+                if mined.replace {
+                    store.clear_commits()?;
+                } else if !mined.dropped.is_empty() {
+                    store.delete_commits(&mined.dropped)?;
+                }
+                store.write_commits(&rows)?;
+                store.set_meta("git.head", mined.head.as_deref().unwrap_or(""))
+            })();
+            if let Err(err) = r {
+                eprintln!("commit store write failed: {err}");
+            }
+        }
+    }
+    if mined.replace {
+        git.commits.clear();
+    } else if !mined.dropped.is_empty() {
+        let gone: HashSet<&str> = mined.dropped.iter().map(|s| s.as_str()).collect();
+        git.commits.retain(|c| !gone.contains(c.id.as_str()));
+    }
+    let new = rows.len();
+    let mut all = rows;
+    all.append(&mut git.commits);
+    git.commits = all;
+    git.head = mined.head;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let mut h = {
+        let e = shared.read();
+        history::History::compute(&git.commits, &|p| e.graph.slot_of_path(p).is_some(), now)
+    };
+    h.head = git.head.clone();
+    drop(git);
+    if trace {
+        eprintln!(
+            "history: {new} new of {} commits, mine {mine_ms:.0} ms, stats {:.0} ms, {} files coupled, total {:.0} ms",
+            h.commits,
+            h.millis,
+            h.coupling.len(),
+            ms(t0)
+        );
+    }
+    shared.write().history = Arc::new(h);
+    run_analysis(shared, events);
+    true
+}
+
+/// Benchmark support: forgets the `n` newest mined commits (in memory only) so the next
+/// `run_history` mines them again, as if they had just been committed.
+#[doc(hidden)]
+pub fn forget_newest_commits(shared: &Shared, n: usize) {
+    let git = shared.read().git.clone();
+    let mut git = git.lock();
+    let n = n.min(git.commits.len().saturating_sub(1));
+    git.commits.drain(..n);
+    git.head = git.commits.first().map(|c| c.id.clone());
 }
 
 /// Re-analyses after edits settle (500 ms without further changes), off the request path.
@@ -1201,6 +1436,84 @@ mod tests {
         assert_eq!(
             e.locate("src/main.rs", None),
             e.graph.slot_of_path("src/main.rs")
+        );
+    }
+
+    /// Runs the system git in `dir` (test setup only; the engine reads history with gix).
+    fn git(dir: &Path, args: &[&str]) -> bool {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn history_finds_hidden_coupling_and_updates_incrementally() {
+        let ws = workspace();
+        let r = ws.path();
+        if !git(r, &["init", "-q", "-b", "main"]) {
+            return; // git not installed
+        }
+        git(r, &["config", "user.email", "ann@example.com"]);
+        git(r, &["config", "user.name", "Ann"]);
+        std::fs::write(r.join("src/schema.sql"), "-- v0\n").unwrap();
+        git(r, &["add", "-A"]);
+        git(r, &["commit", "-q", "-m", "init"]);
+        // main.rs and schema.sql always change together (7 commits with init), with no code edge.
+        for i in 1..=6 {
+            std::fs::write(
+                r.join("src/main.rs"),
+                format!("fn main() {{ let v = {i}; }}\n"),
+            )
+            .unwrap();
+            std::fs::write(r.join("src/schema.sql"), format!("-- v{i}\n")).unwrap();
+            git(r, &["commit", "-q", "-am", &format!("change {i}")]);
+        }
+        let db = tempfile::tempdir().unwrap();
+        let store = Store::open(&db.path().join("index.db")).unwrap();
+        let e = Engine::new(r, Some(store), Options::default()).shared();
+        run_index(&e, &NoEvents);
+        {
+            let e = e.read();
+            assert_eq!(e.history.commits, 7);
+            let partners = e.partners("src/main.rs");
+            assert_eq!(partners.len(), 1);
+            let (p, _, linked) = &partners[0];
+            assert_eq!(
+                (p.path.as_str(), p.shared, *linked),
+                ("src/schema.sql", 7, false)
+            );
+            assert_eq!(e.hidden_pairs(10).len(), 1);
+            assert!(e.history.churn_lens("src/main.rs") > 0);
+            assert_eq!(e.history.owner_lens("src/main.rs"), 1);
+            assert_eq!(
+                e.blame("src/main.rs"),
+                vec![("ann@example.com".to_string(), 1)]
+            );
+        }
+        // Nothing new: no work.
+        assert!(!run_history(&e, &NoEvents));
+        // One new commit by someone else is picked up incrementally.
+        git(r, &["config", "user.email", "bob@example.com"]);
+        std::fs::write(r.join("README.md"), "# changed\n").unwrap();
+        git(r, &["commit", "-q", "-am", "docs"]);
+        assert!(run_history(&e, &NoEvents));
+        assert_eq!(e.read().history.commits, 8);
+        // A fresh engine on the same store loads the commits instead of re-mining them.
+        drop(e);
+        let store = Store::open(&db.path().join("index.db")).unwrap();
+        let e2 = Engine::new(r, Some(store), Options::default()).shared();
+        run_index(&e2, &NoEvents);
+        assert_eq!(e2.read().history.commits, 8);
+        assert_eq!(
+            e2.read()
+                .history
+                .owner
+                .get("README.md")
+                .map(|o| o.0.as_str()),
+            Some("ann@example.com")
         );
     }
 }

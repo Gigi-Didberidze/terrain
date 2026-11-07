@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum IndexPhase {
@@ -201,6 +201,10 @@ pub struct NodeInfo {
     pub in_cycle: bool,
     pub data: bool,
     pub area_lines: u32,
+    pub churn: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    pub owner_share: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -415,6 +419,92 @@ pub struct SettingsParams {
     pub cap_data_files: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CouplingView {
+    pub node: NodeRef,
+    pub degree: f64,
+    pub shared: u32,
+    pub hidden: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rect: Option<Rect>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthorLines {
+    pub author: String,
+    pub lines: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryFileResult {
+    pub churn: u32,
+    pub commits: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    pub owner_share: f64,
+    pub partners: Vec<CouplingView>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlameResult {
+    pub authors: Vec<AuthorLines>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenPair {
+    pub a: NodeRef,
+    pub b: NodeRef,
+    pub degree: f64,
+    pub shared: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenResult {
+    pub pairs: Vec<HiddenPair>,
+    pub total: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MisplacedView {
+    pub node: NodeRef,
+    pub home: NodeRef,
+    pub share: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MisplacedResult {
+    pub items: Vec<MisplacedView>,
+    pub total: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistorySummary {
+    pub available: bool,
+    pub commits: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+    pub top_authors: Vec<String>,
+    pub max_churn: u32,
+    pub churn_days: u32,
+    pub coupled_files: u32,
+    pub hidden_pairs: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshResult {
+    pub changed: bool,
+}
+
 pub mod method {
     pub const INITIALIZE: &str = "initialize";
     pub const PING: &str = "ping";
@@ -433,6 +523,12 @@ pub mod method {
     pub const ANALYSIS_DEAD: &str = "analysis/dead";
     pub const ANALYSIS_SUMMARY: &str = "analysis/summary";
     pub const SETTINGS_UPDATE: &str = "settings/update";
+    pub const HISTORY_SUMMARY: &str = "history/summary";
+    pub const HISTORY_FILE: &str = "history/file";
+    pub const HISTORY_BLAME: &str = "history/blame";
+    pub const HISTORY_HIDDEN: &str = "history/hidden";
+    pub const HISTORY_REFRESH: &str = "history/refresh";
+    pub const ANALYSIS_MISPLACED: &str = "analysis/misplaced";
 }
 
 pub mod notification {

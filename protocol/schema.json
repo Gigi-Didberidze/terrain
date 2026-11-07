@@ -1,6 +1,6 @@
 {
   "$comment": "Single source of truth for the indexer <-> extension protocol. Run `node protocol/gen.mjs` after editing. Field names are camelCase; Rust fields are generated in snake_case with serde renames. Types: string, bool, u32, u64, f64, bytes (base64 string), Name (struct or enum), T[] (array), and a trailing ? on a field name marks it optional.",
-  "version": 5,
+  "version": 6,
   "enums": {
     "IndexPhase": [
       "discover",
@@ -124,7 +124,10 @@
       "deadCandidate": "bool",
       "inCycle": "bool",
       "data": "bool",
-      "areaLines": "u32"
+      "areaLines": "u32",
+      "churn": "u32",
+      "owner?": "string",
+      "ownerShare": "f64"
     },
     "LocateParams": {
       "path": "string",
@@ -258,6 +261,59 @@
     },
     "SettingsParams": {
       "capDataFiles": "bool"
+    },
+    "CouplingView": {
+      "node": "NodeRef",
+      "degree": "f64",
+      "shared": "u32",
+      "hidden": "bool",
+      "rect?": "Rect"
+    },
+    "AuthorLines": {
+      "author": "string",
+      "lines": "u32"
+    },
+    "HistoryFileResult": {
+      "churn": "u32",
+      "commits": "u32",
+      "owner?": "string",
+      "ownerShare": "f64",
+      "partners": "CouplingView[]"
+    },
+    "BlameResult": {
+      "authors": "AuthorLines[]"
+    },
+    "HiddenPair": {
+      "a": "NodeRef",
+      "b": "NodeRef",
+      "degree": "f64",
+      "shared": "u32"
+    },
+    "HiddenResult": {
+      "pairs": "HiddenPair[]",
+      "total": "u32"
+    },
+    "MisplacedView": {
+      "node": "NodeRef",
+      "home": "NodeRef",
+      "share": "f64"
+    },
+    "MisplacedResult": {
+      "items": "MisplacedView[]",
+      "total": "u32"
+    },
+    "HistorySummary": {
+      "available": "bool",
+      "commits": "u32",
+      "head?": "string",
+      "topAuthors": "string[]",
+      "maxChurn": "u32",
+      "churnDays": "u32",
+      "coupledFiles": "u32",
+      "hiddenPairs": "u32"
+    },
+    "RefreshResult": {
+      "changed": "bool"
     }
   },
   "requests": {
@@ -328,6 +384,30 @@
     "settings/update": {
       "params": "SettingsParams",
       "result": null
+    },
+    "history/summary": {
+      "params": null,
+      "result": "HistorySummary"
+    },
+    "history/file": {
+      "params": "PathParams",
+      "result": "HistoryFileResult"
+    },
+    "history/blame": {
+      "params": "PathParams",
+      "result": "BlameResult"
+    },
+    "history/hidden": {
+      "params": "LimitParams",
+      "result": "HiddenResult"
+    },
+    "history/refresh": {
+      "params": null,
+      "result": "RefreshResult"
+    },
+    "analysis/misplaced": {
+      "params": "LimitParams",
+      "result": "MisplacedResult"
     }
   },
   "notifications": {

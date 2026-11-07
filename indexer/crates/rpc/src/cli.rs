@@ -167,3 +167,82 @@ pub fn cycles(args: &[String]) {
         println!("{}", serde_json::json!({ "files": members }));
     }
 }
+
+/// `compass-indexer history <root> [--store <db>] [--rewind <n>]`: mines git history (index
+/// first, so files are known) and prints timings; with `--rewind`, then forgets the n newest
+/// commits and mines them again to time an incremental update.
+pub fn history(args: &[String]) {
+    let Some(root) = args.first() else {
+        eprintln!("usage: compass-indexer history <root> [--store <db>] [--rewind <n>]");
+        std::process::exit(2);
+    };
+    let flag = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let store = flag("--store").map(|p| Store::open(&PathBuf::from(p)).expect("open store"));
+    let rewind: usize = flag("--rewind").and_then(|n| n.parse().ok()).unwrap_or(0);
+    let shared = Engine::new(&PathBuf::from(root), store, Options::default()).shared();
+    let t0 = std::time::Instant::now();
+    let t = run_index(&shared, &NoEvents);
+    let total = t0.elapsed().as_secs_f64() * 1000.0;
+    let (commits, coupled, hidden, misplaced, stats_ms) = {
+        let e = shared.read();
+        (
+            e.history.commits,
+            e.history.coupling.len(),
+            e.hidden_pairs(usize::MAX).len(),
+            e.analysis.misplaced.len(),
+            e.history.millis,
+        )
+    };
+    let mut out = serde_json::json!({
+        "commits": commits,
+        "coupledFiles": coupled,
+        "hiddenPairs": hidden,
+        "misplaced": misplaced,
+        "statsMs": stats_ms,
+        "indexMs": t.total_ms,
+        "totalMs": total,
+    });
+    if args.iter().any(|a| a == "--list") {
+        let e = shared.read();
+        let path = |s: u32| e.graph.path(s).unwrap_or("?").to_string();
+        eprintln!("top authors: {:?}", e.history.top_authors);
+        eprintln!("hidden dependencies (strongest 15):");
+        for (a, b, p) in e.hidden_pairs(15) {
+            eprintln!(
+                "  {:.2} {:>4}  {}  <->  {}",
+                p.degree,
+                p.shared,
+                path(a),
+                path(b)
+            );
+        }
+        eprintln!("misplaced (first 15):");
+        for m in e.analysis.misplaced.iter().take(15) {
+            eprintln!(
+                "  {}  -> module {:.0}% in {}/",
+                path(m.file),
+                m.share * 100.0,
+                path(m.home)
+            );
+        }
+        let mut churn: Vec<(&String, &u32)> = e.history.churn.iter().collect();
+        churn.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+        eprintln!("most churn (90 days): {:?}", &churn[..churn.len().min(8)]);
+    }
+    if rewind > 0 {
+        compass_engine::forget_newest_commits(&shared, rewind);
+        let t1 = std::time::Instant::now();
+        let changed = compass_engine::run_history(&shared, &NoEvents);
+        out["incremental"] = serde_json::json!({
+            "commits": rewind,
+            "changed": changed,
+            "ms": t1.elapsed().as_secs_f64() * 1000.0,
+        });
+    }
+    println!("{out}");
+}

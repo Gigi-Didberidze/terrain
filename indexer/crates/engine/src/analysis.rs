@@ -1,8 +1,9 @@
 //! The Analyse stage: metrics computed from the graph after resolution.
 //!
 //! - Load-bearing score: PageRank over the file dependency graph and the symbol graph.
-//! - Communities: Leiden on the undirected, weighted file graph (imports + calls + references;
-//!   git co-change joins in M4). The 8 largest communities get colours, the rest stay grey.
+//! - Communities: Leiden on the undirected, weighted file graph (imports + calls + references +
+//!   git co-change). The 8 largest communities get colours, the rest stay grey. Files whose
+//!   community is at home in another folder are listed as misplaced.
 //! - Cycles: strongly connected components at file and directory level, each with the single
 //!   edge whose removal breaks most of it.
 //! - Dead-code candidates: symbols nothing depends on that are neither entry points nor exported.
@@ -16,6 +17,22 @@ use std::collections::HashMap;
 pub const COMMUNITY_COLOURS: u32 = 8;
 /// Cycles are listed only up to this many; the largest come first.
 const MAX_CYCLES: usize = 200;
+/// Weight of a co-change edge per unit of coupling degree (static edges weigh about 1 each).
+pub const COCHANGE_WEIGHT: f32 = 2.0;
+/// A folder needs this many files, and its dominant community this share of them, before a
+/// member of another community counts as misplaced.
+const MISPLACED_MIN_FILES: usize = 3;
+const MISPLACED_MIN_SHARE: f32 = 0.5;
+
+/// A file whose community lives mostly in another folder.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Misplaced {
+    pub file: u32,
+    /// The folder holding most of the file's community.
+    pub home: u32,
+    /// Share of the file's community in `home`.
+    pub share: f32,
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct Cycle {
@@ -49,12 +66,22 @@ pub struct Analysis {
     pub dead: Vec<u32>,
     /// Files that are part of an import cycle, sorted.
     pub in_cycle: Vec<u32>,
+    /// Files whose community differs from their folder's, strongest first.
+    pub misplaced: Vec<Misplaced>,
     pub millis: f64,
 }
 
 impl Analysis {
     pub fn file_index(&self, slot: u32) -> Option<u32> {
         self.index.get(&slot).copied()
+    }
+
+    /// Whether a static dependency links two files, in either direction.
+    pub fn linked(&self, a: u32, b: u32) -> bool {
+        let (Some(i), Some(j)) = (self.file_index(a), self.file_index(b)) else {
+            return false;
+        };
+        self.deps.neighbors(i).any(|(t, _)| t == j) || self.deps.neighbors(j).any(|(t, _)| t == i)
     }
 
     pub fn is_dead(&self, slot: u32) -> bool {
@@ -192,7 +219,9 @@ fn file_edges(g: &Graph, index: &HashMap<u32, u32>) -> Vec<(u32, u32, f32)> {
     edges
 }
 
-pub fn analyse(g: &Graph) -> Analysis {
+/// Metrics over the graph. `cochange` holds (file slot, file slot, coupling degree) pairs from
+/// git history; they join the community graph only.
+pub fn analyse(g: &Graph, cochange: &[(u32, u32, f32)]) -> Analysis {
     let t0 = std::time::Instant::now();
     let mut files: Vec<(u32, &str)> = g.files().collect();
     // Index order by path: deterministic communities and cycles across runs.
@@ -245,7 +274,20 @@ pub fn analyse(g: &Graph) -> Analysis {
     }
 
     // Communities over the undirected file graph; colours by size (largest first).
-    let community = metrics::leiden(&deps.symmetric(), 1.0, 8);
+    let mut undirected: Vec<(u32, u32, f32)> = Vec::new();
+    for s in 0..n as u32 {
+        for (t, w) in deps.neighbors(s) {
+            undirected.push((s, t, w));
+            undirected.push((t, s, w));
+        }
+    }
+    for &(a, b, d) in cochange {
+        if let (Some(&i), Some(&j)) = (index.get(&a), index.get(&b)) {
+            undirected.push((i, j, d * COCHANGE_WEIGHT));
+            undirected.push((j, i, d * COCHANGE_WEIGHT));
+        }
+    }
+    let community = metrics::leiden(&Csr::from_edges(n, undirected), 1.0, 8);
     let k = community.iter().map(|&c| c as usize + 1).max().unwrap_or(0);
     let mut sizes = vec![0u32; k];
     let mut lines = vec![0u64; k];
@@ -305,6 +347,8 @@ pub fn analyse(g: &Graph) -> Analysis {
         .collect();
     dead.sort_unstable();
 
+    let misplaced = misplaced(g, &files, &deps, &dependents, &community, &sizes);
+
     Analysis {
         epoch: g.epoch,
         files,
@@ -320,8 +364,93 @@ pub fn analyse(g: &Graph) -> Analysis {
         dir_cycles,
         dead,
         in_cycle,
+        misplaced,
         millis: t0.elapsed().as_secs_f64() * 1000.0,
     }
+}
+
+/// Files whose folder is dominated by one community while they belong to another that is at
+/// home elsewhere. Singleton communities (files with no edges) are never misplaced.
+fn misplaced(
+    g: &Graph,
+    files: &[u32],
+    deps: &Csr,
+    dependents: &Csr,
+    community: &[u32],
+    sizes: &[u32],
+) -> Vec<Misplaced> {
+    // Per folder: community → member count; per community: folder → member count.
+    let mut by_dir: HashMap<u32, HashMap<u32, u32>> = HashMap::new();
+    let mut by_comm: HashMap<u32, HashMap<u32, u32>> = HashMap::new();
+    // Tests, generated and data files sit with what they test or describe, not with their
+    // module; counting them would call source files misplaced into tests/.
+    let counted = |f: u32| g.node(f).flags & (flags::TEST | flags::GENERATED | flags::DATA) == 0;
+    for (i, &f) in files.iter().enumerate() {
+        if !counted(f) {
+            continue;
+        }
+        let dir = g.node(f).parent;
+        let c = community[i];
+        *by_dir.entry(dir).or_default().entry(c).or_default() += 1;
+        *by_comm.entry(c).or_default().entry(dir).or_default() += 1;
+    }
+    let top = |m: &HashMap<u32, u32>| -> Option<(u32, u32)> {
+        m.iter()
+            .map(|(&k, &v)| (k, v))
+            .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
+    };
+    let mut out = Vec::new();
+    for (i, &f) in files.iter().enumerate() {
+        let c = community[i];
+        if sizes[c as usize] < 2 || !counted(f) {
+            continue;
+        }
+        let dir = g.node(f).parent;
+        let members = &by_dir[&dir];
+        let total: u32 = members.values().sum();
+        if (total as usize) < MISPLACED_MIN_FILES {
+            continue;
+        }
+        let Some((dominant, n)) = top(members) else {
+            continue;
+        };
+        if dominant == c || (n as f32) < MISPLACED_MIN_SHARE * total as f32 {
+            continue;
+        }
+        let Some((home, m)) = top(&by_comm[&c]) else {
+            continue;
+        };
+        // A file one folder below (or above) its module's home is ordinary nesting.
+        if home == dir || is_ancestor(g, home, dir) || is_ancestor(g, dir, home) {
+            continue;
+        }
+        let share = m as f32 / by_comm[&c].values().sum::<u32>() as f32;
+        // More than half of the module there, and the file itself uses or is used by that
+        // folder: a cluster reached only indirectly is not evidence of where a file belongs.
+        let touches_home = deps
+            .neighbors(i as u32)
+            .chain(dependents.neighbors(i as u32))
+            .any(|(t, _)| g.node(files[t as usize]).parent == home);
+        if share > MISPLACED_MIN_SHARE && touches_home {
+            out.push(Misplaced {
+                file: f,
+                home,
+                share,
+            });
+        }
+    }
+    out.sort_by(|a, b| b.share.total_cmp(&a.share).then(a.file.cmp(&b.file)));
+    out
+}
+
+fn is_ancestor(g: &Graph, a: u32, mut node: u32) -> bool {
+    while node != NONE {
+        node = g.node(node).parent;
+        if node == a {
+            return true;
+        }
+    }
+    false
 }
 
 /// Names the runtime or framework calls implicitly; never reported as dead.
@@ -400,5 +529,64 @@ mod tests {
             vec![0, 21845, 21845, 65535]
         );
         assert_eq!(percentiles(&[3.0]), vec![65535]);
+    }
+
+    /// Two tight modules, `a/` and `b/`; `a/stray.rs` only talks to `b/`.
+    fn two_modules(stray_flags: u16) -> (Graph, u32) {
+        let mut g = Graph::new("ws");
+        let mut file = |p: &str, f: u16| g.upsert_file(p, 10, Lang::Rust, f);
+        let a: Vec<u32> = (0..4).map(|i| file(&format!("a/a{i}.rs"), 0)).collect();
+        let b: Vec<u32> = (0..4).map(|i| file(&format!("b/b{i}.rs"), 0)).collect();
+        let stray = file("a/stray.rs", stray_flags);
+        let nested = file("b/sub/helper.rs", 0);
+        let mut link =
+            |x: u32, y: u32| g.add_edge(x, y, EdgeKind::Imports, Confidence::Syntactic, 1.0);
+        for m in [&a, &b] {
+            for i in 0..m.len() {
+                for j in 0..m.len() {
+                    if i != j {
+                        link(m[i], m[j]);
+                    }
+                }
+            }
+        }
+        for &x in &b {
+            link(stray, x);
+            link(nested, x);
+        }
+        (g, stray)
+    }
+
+    #[test]
+    fn misplaced_finds_files_whose_module_lives_elsewhere() {
+        let (g, stray) = two_modules(0);
+        let a = analyse(&g, &[]);
+        let paths: Vec<&str> = a
+            .misplaced
+            .iter()
+            .map(|m| g.path(m.file).unwrap())
+            .collect();
+        assert_eq!(
+            paths,
+            vec!["a/stray.rs"],
+            "nested b/sub/helper.rs is ordinary nesting"
+        );
+        assert_eq!(g.path(a.misplaced[0].home), Some("b"));
+        assert_eq!(a.misplaced[0].file, stray);
+        // A test file next to what it tests is never misplaced.
+        let (g, _) = two_modules(flags::TEST);
+        assert!(analyse(&g, &[]).misplaced.is_empty());
+    }
+
+    #[test]
+    fn cochange_pulls_files_into_one_community() {
+        // Two unrelated files with no code edge end up together when they always change together.
+        let mut g = Graph::new("ws");
+        let x = g.upsert_file("x.sql", 10, Lang::Unknown, 0);
+        let y = g.upsert_file("y.rs", 10, Lang::Rust, 0);
+        let alone = analyse(&g, &[]);
+        assert_ne!(alone.community_of(x), alone.community_of(y));
+        let together = analyse(&g, &[(x, y, 0.9)]);
+        assert_eq!(together.community_of(x), together.community_of(y));
     }
 }

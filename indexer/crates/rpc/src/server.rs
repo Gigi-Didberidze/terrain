@@ -267,6 +267,96 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
                 .collect();
             to_value(p::LensesResult { lenses })
         }
+        method::HISTORY_SUMMARY => {
+            let e = s.read();
+            let h = e.history.clone();
+            to_value(p::HistorySummary {
+                available: h.head.is_some(),
+                commits: h.commits as u32,
+                head: h.head.clone(),
+                top_authors: h.top_authors.clone(),
+                max_churn: h.max_churn,
+                churn_days: compass_engine::history::CHURN_DAYS as u32,
+                coupled_files: h.coupling.len() as u32,
+                hidden_pairs: e.hidden_pairs(usize::MAX).len() as u32,
+            })
+        }
+        method::HISTORY_FILE => {
+            let pp: p::PathParams = parse_params(params)?;
+            let e = s.read();
+            let h = e.history.clone();
+            let owner = h.owner.get(&pp.path);
+            let partners = e
+                .partners(&pp.path)
+                .into_iter()
+                .map(|(partner, slot, linked)| p::CouplingView {
+                    node: node_ref(e.node_ref(slot)),
+                    degree: partner.degree as f64,
+                    shared: partner.shared,
+                    hidden: !linked,
+                    rect: e.node_info(slot).and_then(|i| i.rect).map(rect_dto),
+                })
+                .collect();
+            to_value(p::HistoryFileResult {
+                churn: h.churn.get(&pp.path).copied().unwrap_or(0),
+                commits: h.total.get(&pp.path).copied().unwrap_or(0),
+                owner: owner.map(|o| o.0.clone()),
+                owner_share: owner.map(|o| o.1 as f64).unwrap_or(0.0),
+                partners,
+            })
+        }
+        method::HISTORY_BLAME => {
+            let pp: p::PathParams = parse_params(params)?;
+            let authors = s
+                .read()
+                .blame(&pp.path)
+                .into_iter()
+                .map(|(author, lines)| p::AuthorLines { author, lines })
+                .collect();
+            to_value(p::BlameResult { authors })
+        }
+        method::HISTORY_HIDDEN => {
+            let lp: p::LimitParams = parse_params(params)?;
+            let e = s.read();
+            let all = e.hidden_pairs(usize::MAX);
+            let pairs = all
+                .iter()
+                .take(lp.limit.min(5000) as usize)
+                .map(|(a, b, partner)| p::HiddenPair {
+                    a: node_ref(e.node_ref(*a)),
+                    b: node_ref(e.node_ref(*b)),
+                    degree: partner.degree as f64,
+                    shared: partner.shared,
+                })
+                .collect();
+            to_value(p::HiddenResult {
+                pairs,
+                total: all.len() as u32,
+            })
+        }
+        method::HISTORY_REFRESH => {
+            let changed = compass_engine::run_history(s, &RpcEvents(outbox.clone()));
+            to_value(p::RefreshResult { changed })
+        }
+        method::ANALYSIS_MISPLACED => {
+            let lp: p::LimitParams = parse_params(params)?;
+            let e = s.read();
+            let a = e.analysis.clone();
+            let items = a
+                .misplaced
+                .iter()
+                .take(lp.limit.min(5000) as usize)
+                .map(|m| p::MisplacedView {
+                    node: node_ref(e.node_ref(m.file)),
+                    home: node_ref(e.node_ref(m.home)),
+                    share: m.share as f64,
+                })
+                .collect();
+            to_value(p::MisplacedResult {
+                items,
+                total: a.misplaced.len() as u32,
+            })
+        }
         method::ANALYSIS_CYCLES => {
             let e = s.read();
             let a = e.analysis.clone();
@@ -394,6 +484,8 @@ fn node_info(e: &Engine, slot: u32) -> Option<p::NodeInfo> {
         let n = e.graph.node(a);
         cur = (n.parent != compass_core::model::NONE).then_some(n.parent);
     }
+    let file_path = e.file_path_of(slot);
+    let owner = file_path.and_then(|f| e.history.owner.get(f));
     Some(p::NodeInfo {
         slot: i.slot,
         id: i.id.hex(),
@@ -408,12 +500,7 @@ fn node_info(e: &Engine, slot: u32) -> Option<p::NodeInfo> {
         files: i.files,
         generated: i.flags & flags::GENERATED != 0,
         test: i.flags & flags::TEST != 0,
-        rect: i.rect.map(|r| p::Rect {
-            x: r.x,
-            y: r.y,
-            w: r.w,
-            h: r.h,
-        }),
+        rect: i.rect.map(rect_dto),
         ancestors,
         in_count,
         out_count,
@@ -445,7 +532,21 @@ fn node_info(e: &Engine, slot: u32) -> Option<p::NodeInfo> {
             i.loc
         },
         in_cycle: e.analysis.is_in_cycle(slot),
+        churn: file_path
+            .and_then(|f| e.history.churn.get(f).copied())
+            .unwrap_or(0),
+        owner: owner.map(|o| o.0.clone()),
+        owner_share: owner.map(|o| o.1 as f64).unwrap_or(0.0),
     })
+}
+
+fn rect_dto(r: compass_core::Rect) -> p::Rect {
+    p::Rect {
+        x: r.x,
+        y: r.y,
+        w: r.w,
+        h: r.h,
+    }
 }
 
 fn node_ref(r: compass_engine::context::NodeRef) -> p::NodeRef {

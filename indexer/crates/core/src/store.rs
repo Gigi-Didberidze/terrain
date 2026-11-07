@@ -5,11 +5,21 @@ use crate::model::Lang;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const SNAPSHOT_KEY: &str = "files.snapshot";
 
 pub struct Store {
     conn: Connection,
+}
+
+/// One mined commit (see compass-git).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommitRow {
+    pub id: String,
+    pub time: i64,
+    pub author: String,
+    pub merge: bool,
+    pub files: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -53,6 +63,9 @@ impl Store {
                  -- even across branch switches.
                  CREATE TABLE facts (hash BLOB PRIMARY KEY, data BLOB NOT NULL) WITHOUT ROWID;
                  CREATE TABLE kv (key TEXT PRIMARY KEY, data BLOB NOT NULL) WITHOUT ROWID;
+                 -- Mined git history: one row per commit, changed paths as a postcard blob.
+                 CREATE TABLE commits (id TEXT PRIMARY KEY, time INTEGER NOT NULL, author TEXT NOT NULL,
+                   merge INTEGER NOT NULL, files BLOB NOT NULL) WITHOUT ROWID;
                  PRAGMA user_version = {SCHEMA_VERSION};"
             ))?;
         }
@@ -184,6 +197,52 @@ impl Store {
         postcard::from_bytes(&blob).ok()
     }
 
+    pub fn write_commits(&mut self, rows: &[CommitRow]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut ins = tx.prepare_cached("INSERT OR REPLACE INTO commits (id, time, author, merge, files) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+            for r in rows {
+                let files = postcard::to_allocvec(&r.files)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                ins.execute(params![r.id, r.time, r.author, r.merge, files])?;
+            }
+        }
+        tx.commit()
+    }
+
+    pub fn load_commits(&self) -> Result<Vec<CommitRow>> {
+        let mut st = self
+            .conn
+            .prepare("SELECT id, time, author, merge, files FROM commits ORDER BY time DESC")?;
+        let rows = st.query_map([], |r| {
+            let blob: Vec<u8> = r.get(4)?;
+            Ok(CommitRow {
+                id: r.get(0)?,
+                time: r.get(1)?,
+                author: r.get(2)?,
+                merge: r.get(3)?,
+                files: postcard::from_bytes(&blob).unwrap_or_default(),
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn delete_commits(&mut self, ids: &[String]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut del = tx.prepare_cached("DELETE FROM commits WHERE id = ?1")?;
+            for id in ids {
+                del.execute([id])?;
+            }
+        }
+        tx.commit()
+    }
+
+    pub fn clear_commits(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM commits", [])?;
+        Ok(())
+    }
+
     pub fn kv(&self, key: &str) -> Result<Option<Vec<u8>>> {
         self.conn
             .query_row("SELECT data FROM kv WHERE key = ?1", [key], |r| r.get(0))
@@ -222,6 +281,25 @@ mod tests {
         s.write_batch(&[], &[], &["a/b.rs".into()]).unwrap();
         assert!(s.load_files().unwrap().is_empty());
         assert_eq!(s.gc_facts().unwrap(), 1);
+    }
+
+    #[test]
+    fn commits_round_trip_newest_first() {
+        let mut s = Store::open_in_memory().unwrap();
+        let c = |id: &str, t: i64| CommitRow {
+            id: id.into(),
+            time: t,
+            author: "a@x".into(),
+            merge: false,
+            files: vec!["a.rs".into()],
+        };
+        s.write_commits(&[c("old", 1), c("new", 2)]).unwrap();
+        let back = s.load_commits().unwrap();
+        assert_eq!(
+            back.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            vec!["new", "old"]
+        );
+        assert_eq!(back[0].files, vec!["a.rs".to_string()]);
     }
 
     #[test]
