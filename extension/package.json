@@ -3,6 +3,7 @@
   "displayName": "Terrain — Code Map",
   "description": "A fast, deterministic map of your codebase: where you are, what holds it up, and what really belongs together.",
   "version": "0.1.0",
+  "preview": true,
   "publisher": "gigi-didberidze",
   "license": "MIT",
   "repository": {
