@@ -1,6 +1,6 @@
 {
-  "date": "2026-11-05T18:31:36.423Z",
-  "commit": "6832ed0",
+  "date": "2026-11-07T16:55:44.348Z",
+  "commit": "6484594",
   "machine": {
     "platform": "win32",
     "arch": "x64",
@@ -10,94 +10,24 @@
   },
   "results": [
     {
-      "repo": "fixtures",
-      "metric": "startup.spawnToInitializedMs",
-      "value": 22.430999999999997
-    },
-    {
-      "repo": "fixtures",
-      "metric": "cold.firstMapMs",
-      "value": 30.205399999999997
-    },
-    {
-      "repo": "fixtures",
-      "metric": "cold.indexMs",
-      "value": 30.461899999999986
-    },
-    {
-      "repo": "fixtures",
-      "metric": "memory.rssMB",
-      "value": 7.6796875
-    },
-    {
-      "repo": "fixtures",
-      "metric": "files",
-      "value": 1
-    },
-    {
-      "repo": "fixtures",
-      "metric": "warm.mapVisibleMs",
-      "value": 19.818399999999997
-    },
-    {
-      "repo": "vscode",
-      "metric": "startup.spawnToInitializedMs",
-      "value": 24.064800000000105
-    },
-    {
-      "repo": "vscode",
-      "metric": "cold.firstMapMs",
-      "value": 95.48709999999846
-    },
-    {
-      "repo": "vscode",
-      "metric": "cold.indexMs",
-      "value": 294.90749999999935
-    },
-    {
-      "repo": "vscode",
-      "metric": "memory.rssMB",
-      "value": 25.31640625
-    },
-    {
-      "repo": "vscode",
-      "metric": "files",
-      "value": 7707
-    },
-    {
-      "repo": "vscode",
-      "metric": "incremental.saveOneFileMs",
-      "value": 24.02969999999914
-    },
-    {
-      "repo": "vscode",
-      "metric": "search.p99Ms",
-      "value": 2.018500000000131
-    },
-    {
-      "repo": "vscode",
-      "metric": "warm.mapVisibleMs",
-      "value": 53.30420000000049
-    },
-    {
       "repo": "django",
       "metric": "startup.spawnToInitializedMs",
-      "value": 19.685499999999593
+      "value": 29.09979999999996
     },
     {
       "repo": "django",
       "metric": "cold.firstMapMs",
-      "value": 191.15899999999965
+      "value": 141.29939999999624
     },
     {
       "repo": "django",
       "metric": "cold.indexMs",
-      "value": 463.59170000000086
+      "value": 6482.618199999997
     },
     {
       "repo": "django",
       "metric": "memory.rssMB",
-      "value": 22.1015625
+      "value": 142.62109375
     },
     {
       "repo": "django",
@@ -107,18 +37,46 @@
     {
       "repo": "django",
       "metric": "incremental.saveOneFileMs",
-      "value": 28.34180000000015
+      "value": 23.047700000002806
     },
     {
       "repo": "django",
       "metric": "search.p99Ms",
-      "value": 2.256600000000617
+      "value": 2.9464999999981956
+    },
+    {
+      "repo": "django",
+      "metric": "neighbourhood.p99Ms",
+      "value": 4.525800000003073
     },
     {
       "repo": "django",
       "metric": "warm.mapVisibleMs",
-      "value": 63.90229999999974
+      "value": 42.14119999999821
     }
   ],
-  "misses": []
+  "misses": [],
+  "regressions": [
+    {
+      "repo": "django",
+      "metric": "startup.spawnToInitializedMs",
+      "value": 29.09979999999996,
+      "previous": 19.685499999999593,
+      "commit": "6832ed0"
+    },
+    {
+      "repo": "django",
+      "metric": "cold.indexMs",
+      "value": 6482.618199999997,
+      "previous": 463.59170000000086,
+      "commit": "6832ed0"
+    },
+    {
+      "repo": "django",
+      "metric": "memory.rssMB",
+      "value": 142.62109375,
+      "previous": 22.1015625,
+      "commit": "6832ed0"
+    }
+  ]
 }

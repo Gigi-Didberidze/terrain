@@ -164,6 +164,23 @@ scenarios.push({
         }
       }
       if (lat.length) metrics["search.p99Ms"] = pct(lat, 99);
+
+      // Neighbourhood: the most load-bearing files (the densest neighbourhoods) plus symbols
+      // found by search, each opened as a reader would.
+      const slots = new Set();
+      const top = await rpc.request("analysis/summary", { limit: 20 });
+      for (const r of top.topLoadBearing) slots.add(r.node.slot);
+      for (let i = 0; i < Math.min(40, names.length); i++) {
+        const hits = await rpc.request("search", { query: names[(i * 104729) % names.length], limit: 3 });
+        for (const h of hits.hits) slots.add(h.slot);
+      }
+      const nb = [];
+      for (const slot of slots) {
+        const t = performance.now();
+        await rpc.request("view/neighbourhood", { slot });
+        nb.push(performance.now() - t);
+      }
+      if (nb.length) metrics["neighbourhood.p99Ms"] = pct(nb, 99);
       await rpc.close();
     }
 

@@ -154,3 +154,27 @@ Each entry: the decision, the alternatives, the reason.
 ## D38 — Misplaced files: dominant-community test, excluding tests and nesting
 - Alternatives: any file whose community differs from its folder's majority.
 - Reason: A file is listed when its folder (≥ 3 files) is dominated (≥ 50%) by one community, its own community has at least half of its members in one other folder, and that folder is neither an ancestor nor a descendant of the file's own. Test, generated and data files are left out: on a real project, tests importing their subjects made every source module look "at home" in tests/. Nested folders are ordinary structure (a pipelines/ subfolder belonging to its parent's module). On the same project, the two remaining flags were one file used only from another package (real) and one nesting case, now excluded.
+
+## D39 — Neighbourhood layout is a hand-written layered layout, not ELK
+- Alternatives: elkjs (the plan's choice) in a web worker.
+- Reason: The columns are given by distance from the centre (or position along a path), so ELK's layer assignment has nothing to do; what remains is ordering each column to reduce crossings and assigning coordinates. Barycentre sweeps outward from the centre do that in well under a millisecond for 80 nodes (measured in a unit test), where elkjs adds about 1.5 MB to the webview and a worker round trip. The diagram never zooms below 1 so 11px labels always fit their boxes; wide diagrams pan instead of shrinking.
+
+## D40 — Neighbourhood content: same granularity as the centre, 16 per column, no edges across the centre
+- Alternatives: a fixed granularity (always files); every edge among the shown nodes.
+- Reason: Around a symbol the reader wants symbols (the exact method that calls it), around a file the files. Columns keep the 16 strongest edges, ties broken by load-bearing score, and the caption says "16 of 1,118". Edges come from everything inside each shown node and attach to the nearest shown ancestor, so a call into a method of a shown class still draws. Edges from a caller's caller straight to a callee are true but cross the whole diagram; they are left out. vscode's densest nodes (Emitter, 1,118 dependents) take 1.5–5 ms in the engine, 3.5–13 ms round trip.
+
+## D41 — Branch changes: base = origin's default branch, else main/master; uncommitted and untracked work included
+- Alternatives: committed changes only; ask the user for the base.
+- Reason: A reviewer of their own branch cares about everything not yet merged, including what is not committed. The base is the merge base of HEAD with origin/HEAD (else origin/main, origin/master, main, master), found with gix; working-tree status comes from gix too. The blast radius is one multi-source walk over dependents (depth 6), so a 500-file change costs one walk. Changed and blast files reach the tiles as two tile-only flag bits (14, 15) rather than a new tile format version. Review state refreshes after indexing, after new commits, and 500 ms after edits settle.
+
+## D42 — Semantic enrichment asks the call hierarchy for what the developer looks at
+- Alternatives: enrich every visible node; definitions and references for every call site.
+- Reason: Call hierarchy answers exactly "who calls this, what does it call" in one request each, from the language's own server, which is what the edges claim. It runs for the symbol shown in the Context sidebar (cursor, map selection, Neighbourhood centre), two requests at a time, once per graph epoch. An empty answer means "no information" (server missing or not ready), never "no calls". Confirmed calls become semantic edges (solid); name-matched calls the server contradicts are removed and remembered per calling file so re-resolution does not bring them back; both are forgotten when that file's content changes. Verified in a real VS Code: TypeScript confirmed main() → hello() and rejected the name-matched main() → Bag.has().
+
+## D43 — Path view: Yen's three shortest chains, at symbol level only between two symbols
+- Alternatives: weighted shortest paths; always files.
+- Reason: "Why does billing import the PDF renderer?" is answered by the shortest chains, and alternatives show whether there is one route or many. Unweighted BFS inside Yen's algorithm is deterministic and bounded (200k visits). Between two symbols the chain is calls and references; if either end is a file or folder, both are lifted to files. When no chain runs from A to B, the view says so and shows B to A if that exists.
+
+## D44 — Review entry: Ctrl/Cmd+Alt+R and a status bar item once the indexer runs
+- Alternatives: start the indexer at activation so the status bar is always there.
+- Reason: The indexer still starts lazily (activation stays under 20 ms). Compass: Review Changes (Ctrl/Cmd+Alt+R) starts it if needed, waits for the index, refreshes the branch state and shows the changed files by load-bearing score with the Change lens on the map: one keystroke from a fresh checkout to the ranked list, two to open the first file. The status bar item ("Compass: 14 changed · blast 212") appears as soon as anything has started the indexer.

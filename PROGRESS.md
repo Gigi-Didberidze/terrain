@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M5 — Neighbourhood, Path and Review (M4 done; M2's linux measurement deferred, see below)
+**Current milestone:** M6 — Polish and ship (M5 done; M2's linux measurement deferred, see below)
 
 ## M0 — Skeleton: done
 - Monorepo: Rust indexer workspace (`core`, `parse`, `git`, `engine`, `rpc`), extension host, webview, shared protocol schema with generated bindings.
@@ -104,8 +104,25 @@ Review log: the first ranking was wrong (template/loader_tags.py #1, a 486-file 
 
 Quality review: the first hidden-dependency list on vscode was led by test snapshots and translation files, and misplaced files included source modules "at home" in tests/ (on a private project) and files linked to a folder only through a cluster. After D38 and the evidence ranking, vscode's top pairs are dark/light theme files, generated .js next to their .ts, horizontal/vertical scrollbar, keybindingsSync/settingsSync; on the private project, JS files with their HTML templates, and the one misplaced file is used only from another package.
 
+## M5 — Neighbourhood, Path and Review: done (gate below)
+- Neighbourhood view (N, Ctrl/Cmd+Alt+N, CodeLens click, sidebar context menu): the centre, two columns of dependents on the left and dependencies on the right, at the centre's granularity (D40), laid out by a layered layout (D39); follows the cursor when follow mode is on; arrow keys move along edges.
+- Path view (P: from the pinned or previous selection to the selection; Compass: Find Path Between…): up to three shortest chains (D43).
+- Change lens (6) and review mode: files changed since the branch left its base, plus uncommitted and untracked work (D41); status bar "Compass: N changed · blast M"; Compass: Review Changes (Ctrl/Cmd+Alt+R) lists them by load-bearing score (D44); Compass: Blast Radius of Current Change.
+- Semantic enrichment through VS Code's call hierarchy for the symbol in view (D42): confirmed calls draw solid, contradicted name matches disappear.
+- Compass: Export View as SVG (map or diagram, as drawn). Keyboard map complete: / Enter arrows + - 0 1–6 M N P F Backspace . ?
+
+### M5 gate
+| Gate | Result |
+| --- | --- |
+| Neighbourhood < 100 ms | django p99 4.5 ms (bench, 20 most load-bearing files plus searched symbols); vscode: Emitter (1,118 dependents) 3.5 ms, codeEditorWidget.ts 12.6 ms round trip; webview request + layout 5–15 ms |
+| Fresh branch checkout → ranked list of files to review in two keystrokes | Ctrl/Cmd+Alt+R shows the list (one chord; it starts the indexer if needed and waits for the index), Enter opens the first file. Integration test on a scripted repo: branch "feature" lists hello.ts (committed) and extra.ts (uncommitted), main.ts in the blast radius |
+
+Integration test (real VS Code, TypeScript language server): main()'s Neighbourhood shows hello and the name-matched Bag.has; after enrichment only hello remains, drawn as confirmed.
+
+Benchmark note: the regression check compared this run with the last recorded django run on this machine, from M0 (before parsing existed), so it flagged cold index 0.46 → 6.5 s and memory 22 → 143 MB. Those are M2–M4 adding parsing, resolution, analysis and history, not M5; this run is now the baseline.
+
 ## Next
-- M5: Neighbourhood view (ELK layered), Path view, LSP enrichment of visible nodes, Change lens, status-bar review entry, SVG export, full keyboard map.
+- M6: accessibility pass, designed empty/loading/error states, settings, onboarding walkthrough, Marketplace and Open VSX packaging, README with real screenshots.
 - Pending: linux measurement with symbols and edges (memory).
 
 ## Open questions
