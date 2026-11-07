@@ -65,6 +65,8 @@ export function activate(context: vscode.ExtensionContext): CompassApi {
       lens,
     ),
     vscode.commands.registerCommand("compass.openMap", () => map.open()),
+    vscode.commands.registerCommand("compass.restartIndexer", () => map.restartIndexer()),
+    vscode.commands.registerCommand("compass.showLog", () => s.log.show()),
     vscode.commands.registerCommand("compass.reindex", async () => {
       await s.restart();
       MapPanel.current?.dispose();
@@ -95,6 +97,7 @@ export function activate(context: vscode.ExtensionContext): CompassApi {
       if (to === undefined) return;
       await map.command({ type: "command", command: "path", from, to });
     }),
+    vscode.commands.registerCommand("compass.setLens", (lens: number) => map.command({ type: "command", command: "lens", lens: Number(lens) || 1 })),
     vscode.commands.registerCommand("compass.blastRadius", () => map.command({ type: "command", command: "lens", lens: 6 })),
     vscode.commands.registerCommand("compass.review", async () => {
       await map.command({ type: "command", command: "lens", lens: 6 });
@@ -117,6 +120,11 @@ export function activate(context: vscode.ExtensionContext): CompassApi {
     vscode.commands.registerCommand("compass.showMisplaced", () => showMisplaced(s, map)),
     vscode.commands.registerCommand("compass.showHiddenDependencies", () => showHidden(s, map)),
     vscode.workspace.onDidChangeConfiguration(async (e) => {
+      // These change what is indexed: restart the indexer with them (the store keeps the work).
+      if ((e.affectsConfiguration("compass.exclude") || e.affectsConfiguration("compass.history.enabled")) && s.serverInfo) {
+        await map.restartIndexer();
+        return;
+      }
       if (!e.affectsConfiguration("compass.map.capDataFiles") || !s.serverInfo) return;
       const client = await s.get();
       await client.request("settings/update", { capDataFiles: vscode.workspace.getConfiguration("compass").get<boolean>("map.capDataFiles", true) });

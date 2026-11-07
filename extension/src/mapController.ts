@@ -2,7 +2,7 @@
 // payloads to raw bytes, opens files, and pushes "you are here" updates.
 import * as vscode from "vscode";
 import type { NodeInfo, TilesResult } from "../../protocol/generated/protocol.ts";
-import { VIEW_REQUEST_METHODS, type HostToView, type ViewTile, type ViewToHost } from "../../protocol/webview.ts";
+import { STATE_COMMANDS, VIEW_REQUEST_METHODS, type HostToView, type ViewTile, type ViewToHost } from "../../protocol/webview.ts";
 import type { IndexerClient } from "./indexerClient.ts";
 import { MapPanel } from "./panel.ts";
 import type { Session } from "./session.ts";
@@ -18,11 +18,14 @@ export class MapController implements vscode.Disposable {
   readonly onSelection = new vscode.EventEmitter<number | null>();
   private readonly session: Session;
   private readonly context: vscode.ExtensionContext;
+  /** Times of recent crashes: one is restarted quietly, repeated ones are shown. */
+  private crashes: number[] = [];
 
   constructor(context: vscode.ExtensionContext, session: Session) {
     this.context = context;
     this.session = session;
     session.onStart((client) => this.attach(client));
+    session.onCrash((code) => void this.onCrash(code));
     this.disposables.push(
       this.onSelection,
       vscode.window.onDidChangeActiveTextEditor(() => this.scheduleFollow()),
@@ -38,7 +41,25 @@ export class MapController implements vscode.Disposable {
   async open(): Promise<MapPanel> {
     const panel = MapPanel.show(this.context.extensionUri);
     panel.onMessage = (m) => void this.onView(m);
-    panel.post({ type: "status", state: "starting", text: "Starting indexer" });
+    const followDefault = vscode.workspace.getConfiguration("compass").get<boolean>("map.follow", true);
+    panel.post({ type: "config", followDefault });
+    await this.connect(panel);
+    return panel;
+  }
+
+  /** Starts (or reuses) the indexer and tells the view; failures become state screens. */
+  private async connect(panel: MapPanel): Promise<void> {
+    if (!this.session.workspaceRoot) {
+      panel.post({
+        type: "status",
+        state: "empty",
+        text: "Open a folder to see its map",
+        detail: "Compass maps the folder you have open: its files, what they depend on, and how they change.",
+        actions: [{ label: "Open Folder…", command: "workbench.action.files.openFolder" }],
+      });
+      return;
+    }
+    panel.post({ type: "status", state: "starting", text: "Starting the indexer" });
     try {
       await this.session.get();
       panel.post({ type: "status", state: "ready", text: "" });
@@ -47,9 +68,53 @@ export class MapController implements vscode.Disposable {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.session.log.error(msg);
-      panel.post({ type: "status", state: "error", text: msg });
+      const missing = msg.includes("binary not found");
+      panel.post({
+        type: "status",
+        state: "error",
+        text: missing ? "Compass could not find its indexer" : "The indexer did not start",
+        detail: missing
+          ? "The compass-indexer program is missing from this installation. Reinstalling the extension restores it; the log lists where Compass looked."
+          : `${msg.split("\n")[0]}. The log has the details.`,
+        actions: missing
+          ? [{ label: "Show Log", command: "compass.showLog" }]
+          : [
+              { label: "Restart Indexer", command: "compass.restartIndexer" },
+              { label: "Show Log", command: "compass.showLog" },
+            ],
+      });
     }
-    return panel;
+  }
+
+  /** The indexer stopped on its own: restart once quietly; a second crash within a minute is shown. */
+  private async onCrash(code: number | null): Promise<void> {
+    const now = Date.now();
+    this.crashes = [...this.crashes.filter((t) => now - t < 60_000), now];
+    const panel = MapPanel.current;
+    if (this.crashes.length <= 1) {
+      panel?.post({ type: "status", state: "starting", text: "The indexer stopped unexpectedly; restarting it" });
+      if (panel) await this.connect(panel);
+      else void this.session.get().catch(() => {});
+      return;
+    }
+    panel?.post({
+      type: "status",
+      state: "error",
+      text: "The indexer keeps stopping",
+      detail: `It exited with code ${code ?? "unknown"} twice within a minute. The log usually says why; restarting tries once more.`,
+      actions: [
+        { label: "Restart Indexer", command: "compass.restartIndexer" },
+        { label: "Show Log", command: "compass.showLog" },
+      ],
+    });
+  }
+
+  /** Restarts the indexer and reconnects the open map. */
+  async restartIndexer(): Promise<void> {
+    this.crashes = [];
+    await this.session.restart().catch(() => {});
+    const panel = MapPanel.current;
+    if (panel) await this.connect(panel);
   }
 
   private async onView(m: ViewToHost): Promise<void> {
@@ -87,6 +152,9 @@ export class MapController implements vscode.Disposable {
         return;
       case "svg":
         await this.saveSvg(m.svg);
+        return;
+      case "action":
+        if (STATE_COMMANDS.includes(m.command)) await vscode.commands.executeCommand(m.command);
         return;
       case "ready":
         return;

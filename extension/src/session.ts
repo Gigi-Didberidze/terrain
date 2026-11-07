@@ -10,6 +10,9 @@ export class Session implements vscode.Disposable {
   private client: IndexerClient | undefined;
   private ready: Promise<IndexerClient> | undefined;
   private readonly startListeners: ((c: IndexerClient) => void)[] = [];
+  private readonly crashListeners: ((code: number | null) => void)[] = [];
+  /** Set while we stop the indexer on purpose, so its exit is not reported as a crash. */
+  private stopping = false;
   serverInfo: InitializeResult | undefined;
   readonly log: vscode.LogOutputChannel;
   private readonly context: vscode.ExtensionContext;
@@ -29,6 +32,11 @@ export class Session implements vscode.Disposable {
     if (this.client?.running) listener(this.client);
   }
 
+  /** Called when the indexer exits without being asked to. */
+  onCrash(listener: (code: number | null) => void): void {
+    this.crashListeners.push(listener);
+  }
+
   /** Returns a started, initialized client. Safe to call repeatedly. */
   get(): Promise<IndexerClient> {
     if (this.ready && this.client?.running) return this.ready;
@@ -45,7 +53,12 @@ export class Session implements vscode.Disposable {
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(storeDir));
     const client = new IndexerClient(binary);
     client.onLog = (line) => this.log.appendLine(line);
-    client.onExit = (code) => this.log.appendLine(`indexer exited (${code})`);
+    client.onExit = (code) => {
+      this.log.appendLine(`indexer exited (${code})`);
+      if (this.stopping || this.client !== client) return;
+      this.log.error(`the indexer stopped unexpectedly (exit code ${code})`);
+      for (const l of this.crashListeners) l(code);
+    };
     client.start();
     this.client = client;
     this.serverInfo = await client.request("initialize", {
@@ -53,6 +66,8 @@ export class Session implements vscode.Disposable {
       storePath: join(storeDir, "compass.db"),
       clientVersion: String(this.context.extension.packageJSON.version ?? "0.0.0"),
       capDataFiles: vscode.workspace.getConfiguration("compass").get<boolean>("map.capDataFiles", true),
+      exclude: vscode.workspace.getConfiguration("compass").get<string[]>("exclude", []),
+      history: vscode.workspace.getConfiguration("compass").get<boolean>("history.enabled", true),
     });
     this.log.appendLine(`indexer ${this.serverInfo.serverVersion} ready (${binary})`);
     for (const l of this.startListeners) l(client);
@@ -75,13 +90,19 @@ export class Session implements vscode.Disposable {
   }
 
   async restart(): Promise<IndexerClient> {
-    await this.client?.stop();
+    this.stopping = true;
+    try {
+      await this.client?.stop();
+    } finally {
+      this.stopping = false;
+    }
     this.client = undefined;
     this.ready = undefined;
     return this.get();
   }
 
   dispose(): void {
+    this.stopping = true;
     void this.client?.stop();
     this.log.dispose();
   }

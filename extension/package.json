@@ -98,6 +98,21 @@
         "command": "compass.openNodeRef",
         "title": "Open",
         "category": "Compass"
+      },
+      {
+        "command": "compass.restartIndexer",
+        "title": "Restart Indexer",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.showLog",
+        "title": "Show Log",
+        "category": "Compass"
+      },
+      {
+        "command": "compass.setLens",
+        "title": "Set Map Lens",
+        "category": "Compass"
       }
     ],
     "keybindings": [
@@ -139,6 +154,24 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Confirm call edges of the symbol you are looking at with VS Code's call hierarchy (the language's own server). Confirmed calls draw solid; name-matched guesses the language server contradicts are removed."
+        },
+        "compass.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra folders or files to leave off the map, as gitignore-style patterns relative to the workspace (for example `vendor/` or `**/*.min.js`). `.gitignore`, `.ignore` and `node_modules` are always honoured. Changing this restarts the indexer."
+        },
+        "compass.history.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Read git history for churn, ownership and co-change coupling (lenses 3 to 5, hidden dependencies). Everything stays on this machine. Review mode (lens 6) only needs the current branch and works either way."
+        },
+        "compass.map.follow": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Follow the active editor on the map by default: the map shows where you are, and the Neighbourhood re-centres on the symbol under the cursor. `F` toggles it in the map."
         }
       }
     },
@@ -150,6 +183,10 @@
         },
         {
           "command": "compass.openNodeRef",
+          "when": "false"
+        },
+        {
+          "command": "compass.setLens",
           "when": "false"
         }
       ],
@@ -184,6 +221,66 @@
         "view": "compass.context",
         "contents": "Put the cursor in a function or class to see what calls it, what it calls, and what breaks if it changes.\n[Open Map](command:compass.openMap)"
       }
+    ],
+    "walkthroughs": [
+      {
+        "id": "start",
+        "title": "Get started with Compass",
+        "description": "A map of this codebase: what is where, what holds it up, and what changes together.",
+        "steps": [
+          {
+            "id": "map",
+            "title": "Open the map",
+            "description": "Every folder and file of the workspace, sized by lines of code. Position only changes when files are added, moved or deleted, so you learn where things are.\nScroll to zoom into files and their functions, click to select, double-click to open.\n[Open Map](command:compass.openMap)",
+            "media": {
+              "image": {
+                "dark": "media/walkthrough/map-dark.png",
+                "light": "media/walkthrough/map-light.png",
+                "hc": "media/walkthrough/map-dark.png",
+                "hcLight": "media/walkthrough/map-light.png"
+              },
+              "altText": "The Compass map: nested rectangles for folders and files, coloured by module."
+            },
+            "completionEvents": [
+              "onCommand:compass.openMap"
+            ]
+          },
+          {
+            "id": "lenses",
+            "title": "Colour it by what matters",
+            "description": "Number keys switch lenses, one measure at a time: 1 modules, 2 load-bearing (what most code rests on), 3 churn, 4 co-change, 5 ownership, 6 what this branch changed.\n[Show Load-bearing](command:compass.setLens?%5B2%5D)\n[Show This Branch's Changes](command:compass.setLens?%5B6%5D)",
+            "media": {
+              "image": {
+                "dark": "media/walkthrough/load-dark.png",
+                "light": "media/walkthrough/load-light.png",
+                "hc": "media/walkthrough/load-dark.png",
+                "hcLight": "media/walkthrough/load-light.png"
+              },
+              "altText": "The map under the Load-bearing lens: the files most code depends on are drawn strongest."
+            },
+            "completionEvents": [
+              "onCommand:compass.setLens"
+            ]
+          },
+          {
+            "id": "neighbourhood",
+            "title": "See what holds a function up",
+            "description": "Put the cursor in a function or class and open its Neighbourhood: what uses it on the left, what it uses on the right, two steps each. The CodeLens above functions opens it too.\n[Show Neighbourhood](command:compass.showNeighbourhood)",
+            "media": {
+              "image": {
+                "dark": "media/walkthrough/neighbourhood-dark.png",
+                "light": "media/walkthrough/neighbourhood-light.png",
+                "hc": "media/walkthrough/neighbourhood-dark.png",
+                "hcLight": "media/walkthrough/neighbourhood-light.png"
+              },
+              "altText": "The Neighbourhood view: callers in columns on the left, callees on the right."
+            },
+            "completionEvents": [
+              "onCommand:compass.showNeighbourhood"
+            ]
+          }
+        ]
+      }
     ]
   },
   "scripts": {
@@ -191,7 +288,8 @@
     "typecheck": "tsc --noEmit -p .",
     "test": "node --test --experimental-strip-types test/*.test.ts",
     "test:integration": "node test-integration/runTest.mjs",
-    "package": "vsce package --no-dependencies"
+    "package": "node readme.mjs && vsce package --no-dependencies",
+    "readme": "node readme.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -200,5 +298,10 @@
     "@vscode/vsce": "^4.1.0",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
+  },
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1f1f1f",
+    "theme": "dark"
   }
 }
