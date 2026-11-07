@@ -73,3 +73,27 @@ Each entry: the decision, the alternatives, the reason.
 ## D14 — A standalone webview harness for visual and performance tests
 - Alternatives: screenshot the webview inside VS Code via test-electron.
 - Reason: Playwright can't reach into a VS Code webview iframe reliably. `webview/harness/` serves the same bundle with a stand-in for `acquireVsCodeApi`, theme tokens copied from VS Code's built-in themes, and a real indexer behind it. The integration test still covers the real VS Code path.
+
+## D19 — mimalloc as the indexer's allocator, including tree-sitter's C allocations
+- Alternatives: the system allocator.
+- Reason: Parsing allocates heavily from 8 threads; profiling showed a file taking 4.2× longer in the parallel run than alone. mimalloc (routed into tree-sitter via `ts_set_allocator`) took vscode's cold index from 13.7 s to 12.9–13.2 s. A small gain, kept because it is free; the larger win came from D20.
+
+## D20 — One combined query per language instead of four
+- Alternatives: run defs, refs, imports and entrypoints as separate queries (four tree walks).
+- Reason: Profiling `extHostTypes.ts`: parse 24 ms, each query 10–13 ms even with zero matches, because every query walks the whole tree. Concatenating the four files into one query and routing each match by pattern index walks the tree once: extraction 73 → 38 ms on that file, and vscode's cold index 13 s → 8.7 s. Output is identical (golden and property tests unchanged). Tier 2 keeps separate queries because its tags.scm serves as both defs and refs.
+
+## D21 — Reference resolution tiers, with a weighted global fallback
+- Alternatives: only same-file/imported/same-package (the plan's list), or any global name match.
+- Reason: The plan's three tiers miss most cross-file calls in C (linked via headers, not imports) and re-exports (`from shop import checkout` defined in shop/services.py). A fourth tier accepts a definition anywhere in the same language family only when the name is unique there, with weight 0.5, so it is visibly weaker. Any tier with more than three candidates yields no edge rather than a guess.
+
+## D22 — Python top-level modules resolve only at source roots
+- Alternatives: suffix matching anywhere (the first version).
+- Reason: Measuring against Python's own PathFinder showed 67 false edges in a 1,000-import sample, e.g. `import datetime` → django/db/models/functions/datetime.py. Python only finds a top-level module in a directory that is not itself a package; enforcing that removed every false edge (1000/1000 agree, 0 extra).
+
+## D23 — Methods declared outside their type are attached to it
+- Alternatives: leave Go methods and Rust impl blocks as separate top-level symbols.
+- Reason: In Go a method is declared at file level with a receiver; in Rust methods live in `impl` blocks that the first version showed as a second "Order" next to the struct. The extractor now attaches Go methods to their receiver type and merges a Rust impl into the same-named struct/enum/trait in the file (kept separate only when the type lives elsewhere). A type's area is its own lines or its members' lines, whichever is larger.
+
+## D24 — Calls inside Rust macro invocations are not seen
+- Alternatives: re-parse macro token trees as expressions.
+- Reason: tree-sitter parses macro arguments as token trees, so `println!("{}", order.total())` yields no call edge. Re-parsing token trees is guesswork (macros define their own syntax). Accepted as a known gap; LSP enrichment (M5) adds the semantic edges for visible symbols.
