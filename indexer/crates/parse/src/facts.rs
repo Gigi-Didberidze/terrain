@@ -1,8 +1,8 @@
 //! What extraction produces for one file. Serialised (postcard) and cached by content hash, so
 //! unchanged content is never parsed twice, even across branch switches.
 
-use compass_core::model::NodeKind;
 use serde::{Deserialize, Serialize};
+use terrain_core::model::NodeKind;
 
 /// Bump when extraction output changes; cached facts from older versions are discarded.
 pub const EXTRACTOR_VERSION: u32 = 2;

@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Gigi-Didberidze/compass"
+    "url": "https://github.com/Gigi-Didberidze/terrain"
   },
   "engines": {
     "vscode": "^1.90.0"

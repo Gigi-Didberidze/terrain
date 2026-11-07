@@ -43,7 +43,7 @@ for (const r of repos) {
 const results = [];
 for (const t of targets) {
   for (const s of scenarios) {
-    const store = mkdtempSync(join(tmpdir(), "compass-bench-"));
+    const store = mkdtempSync(join(tmpdir(), "terrain-bench-"));
     try {
       const metrics = await s.run({ binary, root: t.root, store, size: t.size });
       for (const [metric, value] of Object.entries(metrics)) {

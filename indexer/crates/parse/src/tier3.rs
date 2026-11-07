@@ -2,9 +2,9 @@
 //! path strings that resolve to real files. This returns candidate strings; the engine keeps
 //! only those that resolve.
 
-use compass_core::model::Lang;
 use regex::Regex;
 use std::sync::OnceLock;
+use terrain_core::model::Lang;
 
 fn re(cell: &'static OnceLock<Regex>, pattern: &str) -> &'static Regex {
     cell.get_or_init(|| Regex::new(pattern).expect("valid regex"))

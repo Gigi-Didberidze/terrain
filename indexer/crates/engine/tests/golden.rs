@@ -5,8 +5,8 @@
 mod common;
 
 use common::dump;
-use compass_engine::{run_index, Engine, NoEvents, Options};
 use std::path::{Path, PathBuf};
+use terrain_engine::{run_index, Engine, NoEvents, Options};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../fixtures")

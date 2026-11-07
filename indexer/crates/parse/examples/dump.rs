@@ -1,16 +1,16 @@
 //! Prints what extraction produces for one file: cargo run --example dump -- <file>
-use compass_core::model::Lang;
+use terrain_core::model::Lang;
 
 fn main() {
     let path = std::env::args().nth(1).expect("file");
     let src = std::fs::read(&path).unwrap();
     if std::env::args().any(|a| a == "--tree") {
         let tree =
-            compass_parse::extract::parse(Lang::from_path(&path), &src).expect("parsed language");
+            terrain_parse::extract::parse(Lang::from_path(&path), &src).expect("parsed language");
         println!("{}", tree.root_node().to_sexp());
         return;
     }
-    let f = compass_parse::extract(Lang::from_path(&path), &src).expect("parsed language");
+    let f = terrain_parse::extract(Lang::from_path(&path), &src).expect("parsed language");
     for d in &f.defs {
         let parent = d
             .parent

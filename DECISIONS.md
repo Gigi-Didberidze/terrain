@@ -60,7 +60,7 @@ Each entry: the decision, the alternatives, the reason.
 
 ## D17 — On Windows, cold-index time is bound by antivirus file scanning; measure it, don't hide it
 - Alternatives: report only warm-cache numbers; add Defender exclusions in the bench.
-- Reason: With Windows Defender real-time protection on, a plain Python reader needs 217 s (399 files/s) to read linux once. The indexer's 98–308 s cold runs track that baseline, and its compute (parse-free M1 layer) is milliseconds. Adding exclusions would change the user's security settings. Compass mitigates instead: the map is usable from discovery (about 0.6 s, sizes estimated), warm starts never re-read unchanged files (D11), and CI measures cold budgets on Linux runners (`bench-nightly.yml`).
+- Reason: With Windows Defender real-time protection on, a plain Python reader needs 217 s (399 files/s) to read linux once. The indexer's 98–308 s cold runs track that baseline, and its compute (parse-free M1 layer) is milliseconds. Adding exclusions would change the user's security settings. Terrain mitigates instead: the map is usable from discovery (about 0.6 s, sizes estimated), warm starts never re-read unchanged files (D11), and CI measures cold budgets on Linux runners (`bench-nightly.yml`).
 
 ## D18 — M1 gate evaluated on this laptop, below the reference machine
 - Alternatives: block M2 until a reference machine (8 cores, 16 GB) is available.
@@ -134,7 +134,7 @@ Each entry: the decision, the alternatives, the reason.
 - Alternatives: the randomised refinement of the original algorithm.
 - Reason: The map must not change colours between two runs on the same code. Nodes are visited in path order and the refinement merges greedily (the θ → 0 limit), which keeps the well-connected guarantee and makes communities reproducible.
 
-## D34 — Data files count as at most 50 lines of area (setting: compass.map.capDataFiles)
+## D34 — Data files count as at most 50 lines of area (setting: terrain.map.capDataFiles)
 - Alternatives: area = line count for every file (the first version); hide data files entirely.
 - Reason: Raised by the user: in a real project two CSV files took the largest boxes on the map, only because of their row count. The map promises area = lines of code, and rows of data are not code. Data files (CSV/TSV/JSONL/Parquet, logs, datasets, SVG, translations such as .po, and JSON/XML/YAML/TXT/SQL over 2,000 lines) stay on the map, drawn in the quieter fill, but count as at most 50 lines. The hover card shows both numbers ("data · 48,210 lines (counted as 50)"). The setting turns the cap off for repositories where the data is the point. Data files are no longer scanned for path mentions.
 
@@ -177,7 +177,7 @@ Each entry: the decision, the alternatives, the reason.
 
 ## D44 — Review entry: Ctrl/Cmd+Alt+R and a status bar item once the indexer runs
 - Alternatives: start the indexer at activation so the status bar is always there.
-- Reason: The indexer still starts lazily (activation stays under 20 ms). Compass: Review Changes (Ctrl/Cmd+Alt+R) starts it if needed, waits for the index, refreshes the branch state and shows the changed files by load-bearing score with the Change lens on the map: one keystroke from a fresh checkout to the ranked list, two to open the first file. The status bar item ("Compass: 14 changed · blast 212") appears as soon as anything has started the indexer.
+- Reason: The indexer still starts lazily (activation stays under 20 ms). Terrain: Review Changes (Ctrl/Cmd+Alt+R) starts it if needed, waits for the index, refreshes the branch state and shows the changed files by load-bearing score with the Change lens on the map: one keystroke from a fresh checkout to the ranked list, two to open the first file. The status bar item ("Terrain: 14 changed · blast 212") appears as soon as anything has started the indexer.
 
 ## D45 — Visual tests check readability, not pixels
 - Alternatives: screenshot baselines compared pixel by pixel (Playwright toHaveScreenshot).
@@ -189,16 +189,16 @@ Each entry: the decision, the alternatives, the reason.
 
 ## D47 — One filter for the full walk and for watched files
 - Alternatives: rely on the extension's watcher exclusions.
-- Reason: Incremental updates added any new file the watcher reported, so a build writing into target/ or dist/ (ignored by .gitignore) put its output on the map. scan::Filter applies the walk's rules to single paths: built-in excluded folders, .gitignore and .ignore at every level (deepest first, re-includes honoured), .git/info/exclude, and the new compass.exclude setting; changes to ignore files invalidate it. Changing compass.exclude or compass.history.enabled restarts the indexer, whose warm start drops what is no longer included.
+- Reason: Incremental updates added any new file the watcher reported, so a build writing into target/ or dist/ (ignored by .gitignore) put its output on the map. scan::Filter applies the walk's rules to single paths: built-in excluded folders, .gitignore and .ignore at every level (deepest first, re-includes honoured), .git/info/exclude, and the new terrain.exclude setting; changes to ignore files invalidate it. Changing terrain.exclude or terrain.history.enabled restarts the indexer, whose warm start drops what is no longer included.
 
 ## D48 — State screens and crash recovery
 - Alternatives: error text in the map panel (as before); a modal notification.
 - Reason: "No folder open", "nothing to map", "indexer missing" and "indexer keeps stopping" each get a title, one line saying why, and the action that fixes it (Open Folder, Restart Indexer, Show Log), rendered with the theme's button tokens and focused for keyboard users. A first crash restarts the indexer quietly (the store makes that cheap); a second within a minute is shown, so a crash loop never hides.
 
 ## D49 — Product name: decision left to the owner before publishing
-- Alternatives: keep "Compass — Code Map".
-- Reason: The extension ID (gigi-didberidze.compass-map) is unique, but the Marketplace already lists "Compass", "Code Compass", "Code-Compass" (Nokia Bell Labs) and "Compass Codegraph", a code-graph tool. Unused on both the Marketplace and Open VSX (checked 2026-11-07): "Terrain", "Lay of the Land". Publishing, the publisher account and the name are the owner's call. The Marketplace README loads its images from the GitHub repository, which is private: they will not show until the repository is public or the images are hosted elsewhere.
+- Alternatives: keep the working name.
+- Reason: The working name was taken several times over on the Marketplace, by one extension of exactly that name, by two "Code …" variants (one from Nokia Bell Labs) and by a code-graph tool with the same purpose. Unused on both the Marketplace and Open VSX (checked 2026-11-07): "Terrain", "Lay of the Land". Publishing, the publisher account and the name are the owner's call. The Marketplace README loads its images from the GitHub repository, which is private: they will not show until the repository is public or the images are hosted elsewhere.
 
-## D50 — The product is named Terrain
-- Alternatives: Compass (crowded, D49), Lay of the Land.
-- Reason: Chosen by the owner. "Terrain" was unused on the Marketplace and Open VSX. Everything a user sees or configures was renamed before publishing, while it is free: extension ID gigi-didberidze.terrain, display name "Terrain — Code Map", commands and settings terrain.*, views, output channel, status bar, messages, walkthrough, README, and the bundled binary (terrain-indexer). Internal names (Rust crates compass-*, the repository and folder name) stay until the owner decides about the repository. A new extension ID means a new workspace storage folder: the first open after the change indexes once.
+## D50 — The product is named Terrain, everywhere
+- Alternatives: the working name (crowded, D49), Lay of the Land; renaming only what users see.
+- Reason: Chosen by the owner, who also asked that the old name remain nowhere. Renamed before publishing, while it is free: extension ID gigi-didberidze.terrain, display name "Terrain — Code Map", commands and settings terrain.*, views, output channel, status bar, messages, walkthrough, README, the binary (terrain-indexer), the Rust crates (terrain-core, terrain-parse, terrain-git, terrain-engine), npm workspaces, environment variables (TERRAIN_TRACE), test hooks, the tile format magic (TRRN), these documents, the GitHub repository (Gigi-Didberidze/terrain) and the local folder. Past commit messages keep the old name: rewriting published history needs a force push. A new extension ID means a new workspace storage folder: the first open after the change indexes once.

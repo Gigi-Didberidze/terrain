@@ -1,4 +1,4 @@
-//! compass-core: graph model, storage, layout, tiles and metrics.
+//! terrain-core: graph model, storage, layout, tiles and metrics.
 
 pub mod graph;
 pub mod layout;

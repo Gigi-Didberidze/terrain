@@ -4,8 +4,8 @@
 
 use crate::analysis::Analysis;
 use crate::context::BLAST_DEPTH;
-use compass_core::Graph;
 use std::collections::HashSet;
+use terrain_core::Graph;
 
 #[derive(Clone, Debug, Default)]
 pub struct Review {

@@ -4,16 +4,16 @@
 use crate::protocol::{self as p, method, notification};
 use crate::rpc::{parse_params, Incoming, Outbox, RpcError, RpcResult};
 use base64::Engine as _;
-use compass_core::layout::{WORLD_H, WORLD_W};
-use compass_core::model::{flags, NodeKind};
-use compass_core::store::Store;
-use compass_core::tiles;
-use compass_engine::{self as engine, Engine, Events, Options, Phase, Shared};
 use parking_lot::RwLock;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
+use terrain_core::layout::{WORLD_H, WORLD_W};
+use terrain_core::model::{flags, NodeKind};
+use terrain_core::store::Store;
+use terrain_core::tiles;
+use terrain_engine::{self as engine, Engine, Events, Options, Phase, Shared};
 
 #[derive(PartialEq, Eq)]
 pub enum Flow {
@@ -168,7 +168,7 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
                 tile_px: tiles::TILE_PX,
                 min_px: tiles::MIN_PX,
                 max_zoom: tiles::MAX_ZOOM,
-                root_name: e.graph.node(compass_core::Graph::ROOT).name.to_string(),
+                root_name: e.graph.node(terrain_core::Graph::ROOT).name.to_string(),
             })
         }
         method::MAP_TILES => {
@@ -190,7 +190,7 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
                     data: b64.encode(e.tile(k.z, k.x, k.y)),
                 })
                 .collect::<Vec<_>>();
-            if std::env::var_os("COMPASS_TRACE").is_some() {
+            if std::env::var_os("TERRAIN_TRACE").is_some() {
                 eprintln!(
                     "tiles: {} tiles, lock {:.0} ms, layout {:.0} ms, total {:.0} ms",
                     tiles.len(),
@@ -293,7 +293,7 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
                 let events = RpcEvents(outbox.clone());
                 let epoch = s.read().graph.epoch;
                 events.changed(epoch, false);
-                compass_engine::schedule_analysis(s, &events);
+                terrain_engine::schedule_analysis(s, &events);
             }
             to_value(p::ConfirmResult {
                 confirmed: r.confirmed,
@@ -399,7 +399,7 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
             })
         }
         method::REVIEW_REFRESH => {
-            let changed = compass_engine::run_review(s, &RpcEvents(outbox.clone()));
+            let changed = terrain_engine::run_review(s, &RpcEvents(outbox.clone()));
             to_value(p::RefreshResult { changed })
         }
         method::HISTORY_SUMMARY => {
@@ -411,7 +411,7 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
                 head: h.head.clone(),
                 top_authors: h.top_authors.clone(),
                 max_churn: h.max_churn,
-                churn_days: compass_engine::history::CHURN_DAYS as u32,
+                churn_days: terrain_engine::history::CHURN_DAYS as u32,
                 coupled_files: h.coupling.len() as u32,
                 hidden_pairs: e.hidden_pairs(usize::MAX).len() as u32,
             })
@@ -471,9 +471,9 @@ fn dispatch(s: &Shared, m: &str, params: Value, outbox: &Outbox) -> RpcResult {
         }
         method::HISTORY_REFRESH => {
             let events = RpcEvents(outbox.clone());
-            let changed = compass_engine::run_history(s, &events);
+            let changed = terrain_engine::run_history(s, &events);
             // A commit moves files from uncommitted to committed; a checkout changes the base.
-            compass_engine::run_review(s, &events);
+            terrain_engine::run_review(s, &events);
             to_value(p::RefreshResult { changed })
         }
         method::ANALYSIS_MISPLACED => {
@@ -620,7 +620,7 @@ fn node_info(e: &Engine, slot: u32) -> Option<p::NodeInfo> {
     while let Some(a) = cur {
         ancestors.push(a);
         let n = e.graph.node(a);
-        cur = (n.parent != compass_core::model::NONE).then_some(n.parent);
+        cur = (n.parent != terrain_core::model::NONE).then_some(n.parent);
     }
     let file_path = e.file_path_of(slot);
     let owner = file_path.and_then(|f| e.history.owner.get(f));
@@ -659,12 +659,12 @@ fn node_info(e: &Engine, slot: u32) -> Option<p::NodeInfo> {
         },
         dead_candidate: e.analysis.is_dead(slot),
         data: i.flags & flags::DATA != 0,
-        area_lines: if i.kind == compass_core::model::NodeKind::File {
-            compass_core::layout::area_lines(
+        area_lines: if i.kind == terrain_core::model::NodeKind::File {
+            terrain_core::layout::area_lines(
                 e.graph.node(slot),
                 e.options
                     .cap_data_files
-                    .then_some(compass_core::layout::DATA_CAP_LINES),
+                    .then_some(terrain_core::layout::DATA_CAP_LINES),
             )
         } else {
             i.loc
@@ -678,7 +678,7 @@ fn node_info(e: &Engine, slot: u32) -> Option<p::NodeInfo> {
     })
 }
 
-fn rect_dto(r: compass_core::Rect) -> p::Rect {
+fn rect_dto(r: terrain_core::Rect) -> p::Rect {
     p::Rect {
         x: r.x,
         y: r.y,
@@ -687,7 +687,7 @@ fn rect_dto(r: compass_core::Rect) -> p::Rect {
     }
 }
 
-fn node_ref(r: compass_engine::context::NodeRef) -> p::NodeRef {
+fn node_ref(r: terrain_engine::context::NodeRef) -> p::NodeRef {
     p::NodeRef {
         slot: r.slot,
         name: r.name,
@@ -697,11 +697,11 @@ fn node_ref(r: compass_engine::context::NodeRef) -> p::NodeRef {
     }
 }
 
-fn refs(v: Vec<compass_engine::context::NodeRef>) -> Vec<p::NodeRef> {
+fn refs(v: Vec<terrain_engine::context::NodeRef>) -> Vec<p::NodeRef> {
     v.into_iter().map(node_ref).collect()
 }
 
-fn cycle_view(e: &Engine, c: &compass_engine::analysis::Cycle) -> p::CycleView {
+fn cycle_view(e: &Engine, c: &terrain_engine::analysis::Cycle) -> p::CycleView {
     p::CycleView {
         members: c.nodes.iter().map(|&s| node_ref(e.node_ref(s))).collect(),
         break_from: c.break_edge.map(|(a, _)| node_ref(e.node_ref(a))),
@@ -709,8 +709,8 @@ fn cycle_view(e: &Engine, c: &compass_engine::analysis::Cycle) -> p::CycleView {
     }
 }
 
-fn edge_kind_dto(k: compass_core::model::EdgeKind) -> p::EdgeKind {
-    use compass_core::model::EdgeKind as K;
+fn edge_kind_dto(k: terrain_core::model::EdgeKind) -> p::EdgeKind {
+    use terrain_core::model::EdgeKind as K;
     match k {
         K::Contains => p::EdgeKind::Contains,
         K::Imports => p::EdgeKind::Imports,
@@ -722,8 +722,8 @@ fn edge_kind_dto(k: compass_core::model::EdgeKind) -> p::EdgeKind {
     }
 }
 
-fn confidence_dto(c: compass_core::model::Confidence) -> p::Confidence {
-    use compass_core::model::Confidence as C;
+fn confidence_dto(c: terrain_core::model::Confidence) -> p::Confidence {
+    use terrain_core::model::Confidence as C;
     match c {
         C::Syntactic => p::Confidence::Syntactic,
         C::Semantic => p::Confidence::Semantic,

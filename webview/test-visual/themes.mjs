@@ -54,7 +54,7 @@ try {
     await page.goto(`http://localhost:${port}/?theme=${theme}`);
     await page.waitForFunction(
       async () => {
-        const r = await window.__compass.rpc("index/status", null);
+        const r = await window.__terrain.rpc("index/status", null);
         return r.result && r.result.phase === "idle" && r.result.timings.totalMs > 0;
       },
       null,
@@ -63,7 +63,7 @@ try {
     await page.waitForTimeout(1500);
 
     // 1. Contrast of every label against every fill.
-    const audit = await page.evaluate(() => window.__compassApp.themeAudit());
+    const audit = await page.evaluate(() => window.__terrainApp.themeAudit());
     for (const c of audit) {
       if (!c.ok) fail(`${theme}: ${c.what}: contrast ${c.ratio} < ${c.min}`);
     }
@@ -71,16 +71,16 @@ try {
 
     // 2. The map draws.
     const shot = await page.screenshot({ path: join(out, `map-${theme}.png`) });
-    const colors = await page.evaluate(() => window.__compassApp.themeColors());
+    const colors = await page.evaluate(() => window.__terrainApp.themeColors());
     const coverage = await pixels(page, shot, colors.background, 10);
     if (coverage < 0.5) fail(`${theme}: only ${(coverage * 100).toFixed(0)}% of the view is drawn`);
     console.log(`  map: ${(coverage * 100).toFixed(0)}% of the view drawn`);
 
     // 3. Selection outlined in the accent colour.
     await page.evaluate(async () => {
-      const r = await window.__compass.rpc("search", { query: "app", limit: 1 });
+      const r = await window.__terrain.rpc("search", { query: "app", limit: 1 });
       const hit = r.result.hits[0];
-      if (hit) await window.__compassApp.reveal(hit.slot, true);
+      if (hit) await window.__terrainApp.reveal(hit.slot, true);
     });
     await page.waitForTimeout(800);
     const sel = await page.screenshot({ path: join(out, `selected-${theme}.png`) });

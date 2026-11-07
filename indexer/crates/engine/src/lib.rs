@@ -1,4 +1,4 @@
-//! compass-engine: the indexing pipeline (discover → hash → parse → resolve → analyse → persist)
+//! terrain-engine: the indexing pipeline (discover → hash → parse → resolve → analyse → persist)
 //! and the queries every view runs against the graph.
 
 pub mod analysis;
@@ -13,12 +13,6 @@ pub mod scan;
 pub mod search;
 pub mod views;
 
-use compass_core::layout::Layout;
-use compass_core::model::*;
-use compass_core::store::{FileRow, Store};
-use compass_core::tiles::{self, LensValues};
-use compass_core::Graph;
-use compass_parse::FileFacts;
 use parking_lot::{Mutex, RwLock};
 use rayon::prelude::*;
 use resolve::Semantic;
@@ -28,6 +22,12 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
+use terrain_core::layout::Layout;
+use terrain_core::model::*;
+use terrain_core::store::{FileRow, Store};
+use terrain_core::tiles::{self, LensValues};
+use terrain_core::Graph;
+use terrain_parse::FileFacts;
 
 /// Files per batch for parsing and persisting (one SQLite transaction each).
 pub const BATCH: usize = 2000;
@@ -66,11 +66,11 @@ impl Events for NoEvents {
 pub struct Options {
     pub size_cap: u64,
     /// Data files count as at most `layout::DATA_CAP_LINES` lines of area (setting
-    /// compass.map.capDataFiles).
+    /// terrain.map.capDataFiles).
     pub cap_data_files: bool,
-    /// Extra gitignore-style globs to leave off the map (setting compass.exclude).
+    /// Extra gitignore-style globs to leave off the map (setting terrain.exclude).
     pub exclude: Vec<String>,
-    /// Mine git history (setting compass.history.enabled).
+    /// Mine git history (setting terrain.history.enabled).
     pub history: bool,
 }
 
@@ -106,7 +106,7 @@ pub struct Engine {
     analysis_gen: Arc<std::sync::atomic::AtomicU64>,
     /// Complexity per file, keyed by content hash (computed on demand).
     complexity_cache: Mutex<ComplexityCache>,
-    /// What belongs on the map (ignore files, built-in exclusions, compass.exclude).
+    /// What belongs on the map (ignore files, built-in exclusions, terrain.exclude).
     pub filter: Arc<scan::Filter>,
     /// Latest git history signals; replaced atomically after each mining run.
     pub history: Arc<history::History>,
@@ -120,10 +120,10 @@ pub struct Engine {
 #[derive(Default)]
 struct GitState {
     opened: bool,
-    repo: Option<compass_git::Repo>,
+    repo: Option<terrain_git::Repo>,
     loaded: bool,
     head: Option<String>,
-    commits: Vec<compass_core::store::CommitRow>,
+    commits: Vec<terrain_core::store::CommitRow>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -162,7 +162,7 @@ pub struct NodeInfo {
     pub end_line: u32,
     pub flags: u16,
     pub files: u32,
-    pub rect: Option<compass_core::Rect>,
+    pub rect: Option<terrain_core::Rect>,
     pub parent: Option<u32>,
 }
 
@@ -345,7 +345,7 @@ impl Engine {
         let cap = self
             .options
             .cap_data_files
-            .then_some(compass_core::layout::DATA_CAP_LINES);
+            .then_some(terrain_core::layout::DATA_CAP_LINES);
         if guard
             .as_ref()
             .is_none_or(|l| l.epoch != self.graph.layout_epoch || l.data_cap != cap)
@@ -600,7 +600,7 @@ impl Engine {
     /// Bundling path from `a` to `b`: rects of `a`'s ancestors up to (not including) their lowest
     /// common ancestor, then down to `b`. Hierarchical edge bundling uses their centres as
     /// control points, so edges that share structure share a route.
-    pub fn bundle_path(&self, a: u32, b: u32) -> Vec<compass_core::Rect> {
+    pub fn bundle_path(&self, a: u32, b: u32) -> Vec<terrain_core::Rect> {
         let chain = |mut s: u32| {
             let mut v = vec![s];
             while self.graph.node(s).parent != NONE {
@@ -657,7 +657,7 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
     if let Some(store) = &shared.read().store {
         if let Err(e) = store
             .lock()
-            .check_extractor_version(compass_parse::EXTRACTOR_VERSION)
+            .check_extractor_version(terrain_parse::EXTRACTOR_VERSION)
         {
             eprintln!("store: {e}");
         }
@@ -675,7 +675,7 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
             .unwrap_or_default()
     };
     let warm = !rows.is_empty();
-    let trace = std::env::var_os("COMPASS_TRACE").is_some();
+    let trace = std::env::var_os("TERRAIN_TRACE").is_some();
     if trace {
         eprintln!("warm: load_files {} rows {:.0} ms", rows.len(), ms(t0));
     }
@@ -1014,7 +1014,7 @@ pub fn run_review(shared: &Shared, events: &dyn Events) -> bool {
         let mut git = git.lock();
         if !git.opened {
             git.opened = true;
-            git.repo = compass_git::Repo::open(&shared.read().root);
+            git.repo = terrain_git::Repo::open(&shared.read().root);
         }
         let Some(repo) = &git.repo else { return false };
         match repo.changes() {
@@ -1059,12 +1059,12 @@ pub fn run_history(shared: &Shared, events: &dyn Events) -> bool {
         return false;
     }
     let t0 = Instant::now();
-    let trace = std::env::var_os("COMPASS_TRACE").is_some();
+    let trace = std::env::var_os("TERRAIN_TRACE").is_some();
     let git = shared.read().git.clone();
     let mut git = git.lock();
     if !git.opened {
         git.opened = true;
-        git.repo = compass_git::Repo::open(&shared.read().root);
+        git.repo = terrain_git::Repo::open(&shared.read().root);
     }
     if git.repo.is_none() {
         return false;
@@ -1102,10 +1102,10 @@ pub fn run_history(shared: &Shared, events: &dyn Events) -> bool {
     if !changed && computed {
         return false;
     }
-    let rows: Vec<compass_core::store::CommitRow> = mined
+    let rows: Vec<terrain_core::store::CommitRow> = mined
         .commits
         .into_iter()
-        .map(|c| compass_core::store::CommitRow {
+        .map(|c| terrain_core::store::CommitRow {
             id: c.id,
             time: c.time,
             author: c.author,
@@ -1208,7 +1208,7 @@ struct Processed {
 
 /// Whether a language gets facts: Tier 1/2 via tree-sitter, Tier 3 via path mentions.
 fn wants_facts(lang: Lang) -> bool {
-    compass_parse::langs::spec(lang).is_some()
+    terrain_parse::langs::spec(lang).is_some()
         || matches!(
             lang,
             Lang::Markdown
@@ -1222,17 +1222,17 @@ fn wants_facts(lang: Lang) -> bool {
 }
 
 fn extract_facts(lang: Lang, content: &[u8]) -> Option<FileFacts> {
-    if compass_parse::langs::spec(lang).is_some() {
-        return compass_parse::extract(lang, content);
+    if terrain_parse::langs::spec(lang).is_some() {
+        return terrain_parse::extract(lang, content);
     }
-    let paths = compass_parse::tier3::path_candidates(lang, content);
+    let paths = terrain_parse::tier3::path_candidates(lang, content);
     if paths.is_empty() {
         return None;
     }
     Some(FileFacts {
         imports: paths
             .into_iter()
-            .map(|(p, line)| compass_parse::Import {
+            .map(|(p, line)| terrain_parse::Import {
                 path: format!("{}{p}", resolve::PATH_PREFIX),
                 names: Vec::new(),
                 line,
@@ -1276,7 +1276,7 @@ fn process_chunk(
             None => vec![None; scanned.len()],
         }
     };
-    let trace = std::env::var_os("COMPASS_TRACE").is_some();
+    let trace = std::env::var_os("TERRAIN_TRACE").is_some();
     let slow: Mutex<Vec<(f64, String, u64)>> = Mutex::new(Vec::new());
     let out = scanned
         .into_par_iter()
@@ -1409,7 +1409,7 @@ mod tests {
         let db = ws
             .path()
             .join("..")
-            .join(format!("compass-test-{}.db", std::process::id()));
+            .join(format!("terrain-test-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&db);
         {
             let e = Engine::new(
@@ -1527,7 +1527,7 @@ mod tests {
         run_index(&e, &NoEvents);
         let e = e.read();
         let buf = e.tile(0, 0, 0);
-        assert_eq!(&buf[0..4], b"CMPT");
+        assert_eq!(&buf[0..4], b"TRRN");
         let hits = e.search.search("main", 5, |_| 0.0);
         // The function `main` (exact name) ranks first; its file is among the hits too.
         let first = e.graph.node(hits[0].slot);

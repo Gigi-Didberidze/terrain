@@ -61,7 +61,7 @@ export const scenarios = [
       await warm.close();
       const t0 = performance.now();
       const rpc = new Rpc(binary);
-      await rpc.request("initialize", { workspaceRoot: root, storePath: `${store}/compass.db`, clientVersion: "bench" });
+      await rpc.request("initialize", { workspaceRoot: root, storePath: `${store}/terrain.db`, clientVersion: "bench" });
       const t1 = performance.now();
       await rpc.close();
       return { "startup.spawnToInitializedMs": t1 - t0 };
@@ -102,7 +102,7 @@ scenarios.push({
     // first time (on Windows the first read after a clone is dominated by antivirus scanning).
     execFileSync(binary, ["index", root], { stdio: "ignore" });
     const metrics = {};
-    const db = join(store, "compass.db");
+    const db = join(store, "terrain.db");
 
     // Cold index.
     {
@@ -138,7 +138,7 @@ scenarios.push({
         const samples = [];
         try {
           for (let i = 0; i < 5; i++) {
-            writeFileSync(target, Buffer.concat([original, Buffer.from(`\n// compass bench ${i}\n`)]));
+            writeFileSync(target, Buffer.concat([original, Buffer.from(`\n// terrain bench ${i}\n`)]));
             const t = performance.now();
             const changed = firstChange(rpc);
             const r = await rpc.request("files/changed", { paths: [rel] });

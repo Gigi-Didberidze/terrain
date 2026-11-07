@@ -1,6 +1,6 @@
-use compass_core::model::Lang;
-use compass_core::store::{FileRow, Store};
 use std::time::Instant;
+use terrain_core::model::Lang;
+use terrain_core::store::{FileRow, Store};
 fn main() {
     let p = std::env::args().nth(1).unwrap();
     let mut s = Store::open(std::path::Path::new(&p)).unwrap();

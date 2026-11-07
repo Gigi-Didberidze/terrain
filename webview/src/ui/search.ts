@@ -24,11 +24,11 @@ export class SearchBox {
     this.input.setAttribute("aria-label", "Search files and symbols");
     this.input.setAttribute("role", "combobox");
     this.input.setAttribute("aria-autocomplete", "list");
-    this.input.setAttribute("aria-controls", "compass-search-list");
+    this.input.setAttribute("aria-controls", "terrain-search-list");
     this.input.setAttribute("aria-expanded", "false");
     this.list = document.createElement("div");
     this.list.className = "search-list";
-    this.list.id = "compass-search-list";
+    this.list.id = "terrain-search-list";
     this.list.setAttribute("role", "listbox");
     this.list.setAttribute("aria-label", "Matches");
     this.el.append(this.input, this.list);
@@ -88,7 +88,7 @@ export class SearchBox {
     this.hits.forEach((h, i) => {
       const row = document.createElement("div");
       row.className = "search-row";
-      row.id = `compass-search-${i}`;
+      row.id = `terrain-search-${i}`;
       row.setAttribute("role", "option");
       row.setAttribute("aria-selected", String(i === this.active));
       row.setAttribute("aria-label", `${h.kind} ${h.name}, ${h.kind === "file" ? h.path : `${h.path} line ${h.line}`}`);

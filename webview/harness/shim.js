@@ -4,7 +4,7 @@
   const post = (msg) => window.postMessage(msg, "*");
   let state = {};
   try {
-    state = JSON.parse(sessionStorage.getItem("compass-state") || "{}");
+    state = JSON.parse(sessionStorage.getItem("terrain-state") || "{}");
   } catch {}
   const rpc = async (method, params) => {
     const r = await fetch("/rpc", { method: "POST", body: JSON.stringify({ method, params }) });
@@ -21,7 +21,7 @@
           for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
           return out;
         };
-  window.__compass = { rpc };
+  window.__terrain = { rpc };
   window.acquireVsCodeApi = () => ({
     async postMessage(m) {
       if (m.type === "ready") {
@@ -39,14 +39,14 @@
         post({ type: "response", id: m.id, result });
         return;
       }
-      if (m.type === "log") console.log(`[compass] ${m.text}`);
-      window.__compassLast = m;
+      if (m.type === "log") console.log(`[terrain] ${m.text}`);
+      window.__terrainLast = m;
     },
     getState: () => state,
     setState: (s) => {
       state = s;
       try {
-        sessionStorage.setItem("compass-state", JSON.stringify(s));
+        sessionStorage.setItem("terrain-state", JSON.stringify(s));
       } catch {}
     },
   });

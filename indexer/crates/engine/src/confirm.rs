@@ -7,8 +7,8 @@
 //! the calling file's content changes, since the calls may have changed with it.
 
 use crate::Engine;
-use compass_core::model::*;
 use std::collections::HashSet;
+use terrain_core::model::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Confirmed {
@@ -30,7 +30,7 @@ impl Engine {
             return out;
         }
         let is_call = |e: &EdgeRec| e.kind == EdgeKind::Calls;
-        let symbol = |g: &compass_core::Graph, s: u32| g.get(s).is_some_and(|n| n.kind.is_symbol());
+        let symbol = |g: &terrain_core::Graph, s: u32| g.get(s).is_some_and(|n| n.kind.is_symbol());
 
         if !callees.is_empty() {
             let keep: HashSet<u32> = callees
@@ -123,8 +123,8 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use crate::{Engine, Options};
-    use compass_core::graph::SymbolSpec;
-    use compass_core::model::*;
+    use terrain_core::graph::SymbolSpec;
+    use terrain_core::model::*;
 
     #[test]
     fn confirmed_calls_upgrade_and_contradicted_ones_go() {

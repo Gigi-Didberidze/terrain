@@ -1,8 +1,8 @@
 //! Extraction tests per language: every query compiles, and small snippets yield the expected
 //! definitions, references, imports and entry points.
 
-use compass_core::model::{Lang, NodeKind};
-use compass_parse::{extract, langs, FileFacts, RefKind};
+use terrain_core::model::{Lang, NodeKind};
+use terrain_parse::{extract, langs, FileFacts, RefKind};
 
 #[test]
 fn all_queries_compile() {

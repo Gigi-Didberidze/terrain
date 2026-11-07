@@ -3,7 +3,7 @@
 //! so the webview never parses JSON for geometry.
 //!
 //! Format v1:
-//!   header (24 B): magic u32 "CMPT", version u16, z u16, x u32, y u32, count u32, strings_len u32
+//!   header (24 B): magic u32 "TRRN", version u16, z u16, x u32, y u32, count u32, strings_len u32
 //!   items  (40 B each):
 //!     f32 x, y, w, h     position relative to the tile origin, in tile units
 //!     u32 slot           node handle
@@ -17,7 +17,7 @@ use crate::graph::Graph;
 use crate::layout::{Layout, Rect};
 use crate::model::*;
 
-pub const MAGIC: u32 = u32::from_le_bytes(*b"CMPT");
+pub const MAGIC: u32 = u32::from_le_bytes(*b"TRRN");
 pub const VERSION: u16 = 1;
 pub const HEADER_BYTES: usize = 24;
 pub const ITEM_BYTES: usize = 40;

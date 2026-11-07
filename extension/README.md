@@ -3,7 +3,7 @@
 
 A map of your codebase inside VS Code: where everything is, what holds it up, what changes together, and what your branch touches. Offline, deterministic, fast on large repositories.
 
-![The Terrain map of django, coloured by module](https://raw.githubusercontent.com/Gigi-Didberidze/compass/main/docs/images/map-light.png)
+![The Terrain map of django, coloured by module](https://raw.githubusercontent.com/Gigi-Didberidze/terrain/main/docs/images/map-light.png)
 
 ## What it shows
 
@@ -22,7 +22,7 @@ A map of your codebase inside VS Code: where everything is, what holds it up, wh
 
 **Neighbourhood** (N, Ctrl+Alt+N in the editor, or click a CodeLens). The selected function or file in the middle, what uses it on the left, what it uses on the right, two steps each. Reads left to right: "A uses B uses C".
 
-![The Neighbourhood of Emitter in vscode](https://raw.githubusercontent.com/Gigi-Didberidze/compass/main/docs/images/neighbourhood-dark.png)
+![The Neighbourhood of Emitter in vscode](https://raw.githubusercontent.com/Gigi-Didberidze/terrain/main/docs/images/neighbourhood-dark.png)
 
 **Path** (P, or Terrain: Find Path Between…). The shortest dependency chains between two things, up to three. Answers "why does this module end up importing that one?"
 
@@ -90,7 +90,7 @@ Terrain runs locally. It sends nothing anywhere: no telemetry, no network calls.
 
 ## Source
 
-https://github.com/Gigi-Didberidze/compass
+https://github.com/Gigi-Didberidze/terrain
 
 ## License
 

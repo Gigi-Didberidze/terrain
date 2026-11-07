@@ -1,13 +1,13 @@
 //! Command-line mode for profiling: `terrain-indexer index <root> [--store <db>]`.
 //! Prints timings and graph counts as JSON. Run twice with the same store to measure a warm start.
 
-use compass_core::model::{EdgeKind, NodeKind};
-use compass_core::store::Store;
-use compass_engine::{run_index, Engine, NoEvents, Options};
 use std::path::PathBuf;
+use terrain_core::model::{EdgeKind, NodeKind};
+use terrain_core::store::Store;
+use terrain_engine::{run_index, Engine, NoEvents, Options};
 
 /// `terrain-indexer imports <root> [--lang python|typescript|...]`: one JSON line per import
-/// with the files Compass resolves it to, for comparison against language tooling.
+/// with the files Terrain resolves it to, for comparison against language tooling.
 pub fn imports(args: &[String]) {
     let Some(root) = args.first() else {
         eprintln!("usage: terrain-indexer imports <root> [--lang <lang>]");
@@ -235,9 +235,9 @@ pub fn history(args: &[String]) {
         eprintln!("most churn (90 days): {:?}", &churn[..churn.len().min(8)]);
     }
     if rewind > 0 {
-        compass_engine::forget_newest_commits(&shared, rewind);
+        terrain_engine::forget_newest_commits(&shared, rewind);
         let t1 = std::time::Instant::now();
-        let changed = compass_engine::run_history(&shared, &NoEvents);
+        let changed = terrain_engine::run_history(&shared, &NoEvents);
         out["incremental"] = serde_json::json!({
             "commits": rewind,
             "changed": changed,

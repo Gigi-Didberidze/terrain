@@ -8,10 +8,10 @@
 //!   edge whose removal breaks most of it.
 //! - Dead-code candidates: symbols nothing depends on that are neither entry points nor exported.
 
-use compass_core::metrics::{self, Csr};
-use compass_core::model::*;
-use compass_core::Graph;
 use std::collections::HashMap;
+use terrain_core::metrics::{self, Csr};
+use terrain_core::model::*;
+use terrain_core::Graph;
 
 /// Colours available to the Structure lens (categorical palette of 8; 0 = grey).
 pub const COMMUNITY_COLOURS: u32 = 8;

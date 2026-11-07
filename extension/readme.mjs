@@ -5,8 +5,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const repo = "https://github.com/Gigi-Didberidze/compass";
-const raw = "https://raw.githubusercontent.com/Gigi-Didberidze/compass/main";
+const repo = "https://github.com/Gigi-Didberidze/terrain";
+const raw = "https://raw.githubusercontent.com/Gigi-Didberidze/terrain/main";
 let md = readFileSync(join(here, "..", "README.md"), "utf8");
 md = md.replace(/\]\(docs\/images\//g, `](${raw}/docs/images/`);
 md = md.replace(/\]\((DECISIONS|PROGRESS)\.md\)/g, `](${repo}/blob/main/$1.md)`);

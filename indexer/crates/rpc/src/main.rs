@@ -1,4 +1,4 @@
-//! terrain-indexer: the out-of-process indexer for the Compass VS Code extension.
+//! terrain-indexer: the out-of-process indexer for the Terrain VS Code extension.
 //! Speaks JSON-RPC 2.0 over stdio with LSP-style framing.
 
 mod cli;

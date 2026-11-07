@@ -1,7 +1,6 @@
 //! Discover and Hash stages: walk the workspace honouring .gitignore, then read each file once to
 //! get its BLAKE3 hash, lines of code and generated-file status.
 
-use compass_core::model::{flags, Lang};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::overrides::{Override, OverrideBuilder};
 use ignore::{WalkBuilder, WalkState};
@@ -10,6 +9,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
+use terrain_core::model::{flags, Lang};
 
 pub const DEFAULT_SIZE_CAP: u64 = 1024 * 1024;
 
@@ -27,7 +27,7 @@ fn is_excluded_dir(name: &str) -> bool {
 }
 
 /// What belongs on the map: not in a built-in excluded folder, not ignored by .gitignore,
-/// .ignore or .git/info/exclude, and not matched by the user's `compass.exclude` patterns.
+/// .ignore or .git/info/exclude, and not matched by the user's `terrain.exclude` patterns.
 /// The full walk applies the same rules through `ignore`'s walker; this answers for single
 /// paths reported by the file watcher (a build writing thousands of files into an ignored
 /// folder must not reach the map).
@@ -126,7 +126,7 @@ fn user_override(root: &Path, exclude: &[String]) -> Override {
             None => format!("!{g}"),
         };
         if let Err(e) = b.add(&pat) {
-            eprintln!("ignoring invalid compass.exclude pattern {g:?}: {e}");
+            eprintln!("ignoring invalid terrain.exclude pattern {g:?}: {e}");
         }
     }
     b.build().unwrap_or_else(|_| Override::empty())
@@ -376,7 +376,7 @@ const DATA_LINES: u32 = 2000;
 /// Data rather than code: tables, logs, datasets, images-as-text. Area on the map is meant to be
 /// code, so these are capped (DECISIONS.md D34).
 /// The data classification used everywhere: known data formats, plus any file over the size
-/// cap whose language Compass does not recognise (it was never read, so its "lines" are only
+/// cap whose language Terrain does not recognise (it was never read, so its "lines" are only
 /// an estimate from its byte size).
 pub fn counts_as_data(path: &str, loc: u32, lang: Lang, too_large: bool) -> bool {
     is_data_file(path, loc) || (too_large && lang == Lang::Unknown)

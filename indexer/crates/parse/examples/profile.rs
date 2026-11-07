@@ -1,8 +1,8 @@
 //! Times parsing and each query on one file: cargo run --release --example profile -- <lang> <file>
-use compass_core::model::Lang;
-use compass_parse::langs::spec;
 use std::time::Instant;
 use streaming_iterator::StreamingIterator;
+use terrain_core::model::Lang;
+use terrain_parse::langs::spec;
 use tree_sitter::QueryCursor;
 
 fn main() {
@@ -11,7 +11,7 @@ fn main() {
     let src = std::fs::read(&args[1]).unwrap();
     let spec = spec(lang).expect("parsed language");
     let t = Instant::now();
-    let tree = compass_parse::extract::parse(lang, &src).unwrap();
+    let tree = terrain_parse::extract::parse(lang, &src).unwrap();
     println!(
         "parse   {:>7.1} ms  ({} bytes)",
         t.elapsed().as_secs_f64() * 1e3,
@@ -39,7 +39,7 @@ fn main() {
         );
     }
     let t = Instant::now();
-    let f = compass_parse::extract(lang, &src).unwrap();
+    let f = terrain_parse::extract(lang, &src).unwrap();
     println!(
         "extract {:>7.1} ms  ({} defs, {} refs)",
         t.elapsed().as_secs_f64() * 1e3,

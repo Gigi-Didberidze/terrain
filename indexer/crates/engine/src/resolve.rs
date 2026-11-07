@@ -7,12 +7,12 @@
 
 use crate::imports::{self, Ctx, FileIndex};
 use crate::project::{join, Project};
-use compass_core::model::*;
-use compass_core::{Graph, SymbolSpec};
-use compass_parse::{FileFacts, RefKind};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use terrain_core::model::*;
+use terrain_core::{Graph, SymbolSpec};
+use terrain_parse::{FileFacts, RefKind};
 
 /// Prefix for Tier 3 path mentions stored among imports.
 pub const PATH_PREFIX: &str = "path:";
@@ -209,7 +209,7 @@ impl Semantic {
         &self,
         g: &Graph,
         file: u32,
-    ) -> Vec<(compass_parse::Import, Vec<String>)> {
+    ) -> Vec<(terrain_parse::Import, Vec<String>)> {
         let (Some(facts), Some(from)) = (self.facts.get(&file), g.path(file)) else {
             return Vec::new();
         };

@@ -1,6 +1,6 @@
 // Contrast audit: every label colour against every fill it can be drawn on, in the active theme
 // and under every lens. Used by the visual tests in three themes and runnable in DevTools
-// (window.__compassApp.themeAudit()). WCAG 2 contrast; labels need 4.5:1 (AA, normal text).
+// (window.__terrainApp.themeAudit()). WCAG 2 contrast; labels need 4.5:1 (AA, normal text).
 import { LENSES, lensColor, textOn, type LensId } from "../lenses.ts";
 import { FLAG_BLAST, FLAG_CHANGED, KIND_FILE, type Item } from "../tiles.ts";
 import { contrast, type RGBA, type Theme } from "./theme.ts";

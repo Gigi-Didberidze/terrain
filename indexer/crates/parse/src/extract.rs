@@ -2,10 +2,10 @@
 
 use crate::facts::*;
 use crate::langs::{spec, Spec};
-use compass_core::model::{Lang, NodeKind};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use streaming_iterator::StreamingIterator;
+use terrain_core::model::{Lang, NodeKind};
 use tree_sitter::{Node, Parser, Query, QueryCursor, Tree};
 
 thread_local! {

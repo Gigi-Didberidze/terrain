@@ -1,7 +1,7 @@
-// Compares Compass's import cycles with dependency-cruiser's on a TypeScript tree.
+// Compares Terrain's import cycles with dependency-cruiser's on a TypeScript tree.
 // Usage: terrain-indexer cycles <repo> > ours.jsonl
 //        node bench/accuracy/cycles.mjs <repo> <subdir> ours.jsonl
-// dependency-cruiser runs with the subdir's tsconfig and counts type-only imports, as Compass does.
+// dependency-cruiser runs with the subdir's tsconfig and counts type-only imports, as Terrain does.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -44,12 +44,12 @@ console.log(
   JSON.stringify(
     {
       depcruiseSeconds: (Date.now() - t0) / 1000,
-      filesInCycles: { compass: ours.size, depcruise: theirs.size, both: both.length },
+      filesInCycles: { terrain: ours.size, depcruise: theirs.size, both: both.length },
       agreement: +(both.length / Math.max(1, new Set([...ours, ...theirs]).size)).toFixed(4),
     },
     null,
     1,
   ),
 );
-for (const f of onlyOurs.slice(0, 10)) console.log("ONLY-COMPASS", f);
+for (const f of onlyOurs.slice(0, 10)) console.log("ONLY-TERRAIN", f);
 for (const f of onlyTheirs.slice(0, 10)) console.log("ONLY-DEPCRUISE", f);

@@ -22,7 +22,7 @@ for (const theme of themes.length ? themes : ["dark", "light", "hc"]) {
   await page.goto(`${base}/?theme=${theme}`);
   // Wait for the indexer to be idle, then for tiles to settle.
   await page.waitForFunction(async () => {
-    const r = await window.__compass.rpc("index/status", null);
+    const r = await window.__terrain.rpc("index/status", null);
     return r.result && r.result.phase === "idle";
   }, null, { timeout: 120000, polling: 250 });
   await page.waitForTimeout(800);
@@ -43,9 +43,9 @@ for (const theme of themes.length ? themes : ["dark", "light", "hc"]) {
   }
   if (theme === "dark" && select) {
     await page.evaluate(async (q) => {
-      const r = await window.__compass.rpc("search", { query: q, limit: 1 });
+      const r = await window.__terrain.rpc("search", { query: q, limit: 1 });
       const hit = r.result.hits[0];
-      if (hit) await window.__compassApp.reveal(hit.slot, true);
+      if (hit) await window.__terrainApp.reveal(hit.slot, true);
     }, select);
     await page.waitForTimeout(1500);
     await page.screenshot({ path: join(out, `map-${theme}-selected.png`) });

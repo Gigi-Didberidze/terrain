@@ -22,7 +22,7 @@ async function run() {
   // hello.ts, main.ts, shapes.ts, extra.ts, tsconfig.json
   assert.equal(info.files, 5, "every workspace file is on the map");
   const tiles = await client.request("map/tiles", { tiles: [{ z: 0, x: 0, y: 0 }] });
-  assert.ok(Buffer.from(tiles.tiles[0].data, "base64").subarray(0, 4).toString() === "CMPT");
+  assert.ok(Buffer.from(tiles.tiles[0].data, "base64").subarray(0, 4).toString() === "TRRN");
   assert.ok(api.activationMs < 20, `activation took ${api.activationMs} ms`);
   console.log(`[terrain-it] activated in ${api.activationMs.toFixed(1)} ms; map opened and indexer answered in ${Date.now() - t0} ms`);
 

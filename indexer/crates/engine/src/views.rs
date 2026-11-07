@@ -9,8 +9,8 @@
 //! unweighted BFS), at symbol level when both ends are symbols, else between their files.
 
 use crate::{EdgeView, Engine};
-use compass_core::model::*;
 use std::collections::{HashMap, HashSet, VecDeque};
+use terrain_core::model::*;
 
 /// Per column, at most this many nodes (strongest edges first); the rest are counted.
 pub const COLUMN_LIMIT: usize = 16;
@@ -342,7 +342,7 @@ mod tests {
     use super::*;
 
     use crate::{Engine, Options};
-    use compass_core::graph::SymbolSpec;
+    use terrain_core::graph::SymbolSpec;
 
     fn spec(kind: NodeKind, name: &str, parent: Option<usize>) -> SymbolSpec {
         SymbolSpec {
@@ -381,7 +381,7 @@ mod tests {
         }
         let t = g.upsert_file("a.test.ts", 5, Lang::TypeScript, 0);
         slots.insert("test", t);
-        let c = |g: &mut compass_core::Graph, a: u32, b: u32| {
+        let c = |g: &mut terrain_core::Graph, a: u32, b: u32| {
             g.add_edge(a, b, EdgeKind::Calls, Confidence::Syntactic, 1.0)
         };
         c(g, slots["caller"], slots["render"]);

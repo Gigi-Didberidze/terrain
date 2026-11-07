@@ -4,8 +4,8 @@
 mod common;
 
 use common::dump;
-use compass_engine::{apply_changes, run_index, Engine, NoEvents, Options};
 use std::path::{Path, PathBuf};
+use terrain_engine::{apply_changes, run_index, Engine, NoEvents, Options};
 
 /// Small deterministic PRNG (no dependency, reproducible failures).
 struct Lcg(u64);

@@ -1,11 +1,11 @@
 [package]
-name = "compass-parse"
+name = "terrain-parse"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-compass-core = { version = "0.1.0", path = "../core" }
+terrain-core = { version = "0.1.0", path = "../core" }
 postcard = { version = "1.1.3", features = ["alloc"] }
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }

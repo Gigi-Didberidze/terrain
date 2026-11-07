@@ -1,4 +1,4 @@
-//! compass-git: history mining with gix (no shelling out to `git`).
+//! terrain-git: history mining with gix (no shelling out to `git`).
 //!
 //! Reads each commit's changed files once, in parallel, and incrementally from the last mined
 //! commit afterwards. Blame is computed on demand for a single file.

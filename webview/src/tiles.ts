@@ -1,6 +1,6 @@
 // Binary tile decoding (format v1, see indexer/crates/core/src/tiles.rs) and the tile cache.
 
-export const MAGIC = 0x54504d43; // "CMPT" little-endian
+export const MAGIC = 0x4e525254; // "TRRN" little-endian
 export const HEADER_BYTES = 24;
 export const ITEM_BYTES = 40;
 

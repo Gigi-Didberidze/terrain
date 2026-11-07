@@ -10,9 +10,9 @@
 //!   entrypoints.scm  @entry on a definition's name node; @entry.file marks the whole file
 //! Tier 2 languages use the grammar's own tags.scm (@definition.<kind>, @reference.call, @name).
 
-use compass_core::model::Lang;
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use terrain_core::model::Lang;
 use tree_sitter::{Language, Query};
 
 pub struct Spec {

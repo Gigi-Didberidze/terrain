@@ -2,8 +2,8 @@
 //! independently built graphs can be compared.
 #![allow(dead_code)]
 
-use compass_core::model::*;
-use compass_engine::{Engine, Shared};
+use terrain_core::model::*;
+use terrain_engine::{Engine, Shared};
 
 pub fn id(e: &Engine, slot: u32) -> String {
     let n = e.graph.node(slot);

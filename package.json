@@ -1,5 +1,5 @@
 {
-  "name": "compass-monorepo",
+  "name": "terrain-monorepo",
   "private": true,
   "workspaces": [
     "extension",

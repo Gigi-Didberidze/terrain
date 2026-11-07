@@ -33,7 +33,7 @@ if (!existsSync(join(dist, "main.js"))) {
 
 const rpc = new Rpc(binary);
 // --store reuses an existing index (warm start); default is a fresh temporary store.
-const store = opt("store", join(mkdtempSync(join(tmpdir(), "compass-harness-")), "terrain.db"));
+const store = opt("store", join(mkdtempSync(join(tmpdir(), "terrain-harness-")), "terrain.db"));
 const ready = rpc.request("initialize", { workspaceRoot: root, storePath: store, clientVersion: "harness" });
 const clients = new Set();
 const send = (msg) => {

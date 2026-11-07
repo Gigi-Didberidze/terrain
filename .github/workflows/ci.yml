@@ -92,10 +92,10 @@ jobs:
         working-directory: extension
         run: |
           ext=""; [[ "${{ runner.os }}" == "Windows" ]] && ext=".exe"
-          npx vsce package --no-dependencies --target ${{ matrix.native.vsce }} -o compass-${{ matrix.native.vsce }}.vsix
+          npx vsce package --no-dependencies --target ${{ matrix.native.vsce }} -o terrain-${{ matrix.native.vsce }}.vsix
           rm -f bin/terrain-indexer*
           cp "../indexer/target/${{ matrix.cross.target }}/release/terrain-indexer$ext" bin/
-          npx vsce package --no-dependencies --target ${{ matrix.cross.vsce }} -o compass-${{ matrix.cross.vsce }}.vsix
+          npx vsce package --no-dependencies --target ${{ matrix.cross.vsce }} -o terrain-${{ matrix.cross.vsce }}.vsix
       - uses: actions/upload-artifact@v4
         with:
           name: vsix-${{ matrix.os }}

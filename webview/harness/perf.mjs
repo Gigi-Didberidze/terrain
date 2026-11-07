@@ -13,7 +13,7 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 await page.goto(url);
 await page.evaluate(() => sessionStorage.clear());
 await page.goto(url);
-await page.waitForFunction(async () => (await window.__compass.rpc("index/status", null)).result?.phase === "idle", null, { timeout: 600000, polling: 500 });
+await page.waitForFunction(async () => (await window.__terrain.rpc("index/status", null)).result?.phase === "idle", null, { timeout: 600000, polling: 500 });
 await page.waitForTimeout(1500);
 const renderer = await page.evaluate(() => {
   const c = document.querySelector("canvas");
@@ -22,7 +22,7 @@ const renderer = await page.evaluate(() => {
   return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : "canvas2d";
 });
 await page.evaluate(() => {
-  window.__compassApp.frames.length = 0;
+  window.__terrainApp.frames.length = 0;
   window.__longTasks = [];
   new PerformanceObserver((l) => {
     for (const e of l.getEntries()) window.__longTasks.push(Math.round(e.duration));
@@ -32,15 +32,15 @@ const elapsed = 5000;
 // --cached: run the motion once to load tiles, then measure a second identical pass
 // (separates rendering cost from tile streaming cost).
 if (process.argv.includes("--cached")) {
-  await page.evaluate((ms) => window.__compassApp.motionTest(ms), elapsed);
+  await page.evaluate((ms) => window.__terrainApp.motionTest(ms), elapsed);
   await page.waitForTimeout(1500);
   await page.evaluate(() => {
-    window.__compassApp.frames.length = 0;
+    window.__terrainApp.frames.length = 0;
     window.__longTasks.length = 0;
   });
 }
-const intervals = await page.evaluate((ms) => window.__compassApp.motionTest(ms), elapsed);
-const { frames, items, longTasks, breakdown } = await page.evaluate(() => ({ frames: window.__compassApp.frames, items: window.__compassApp.itemCount, longTasks: window.__longTasks, breakdown: window.__compassApp.breakdown.slice(-300) }));
+const intervals = await page.evaluate((ms) => window.__terrainApp.motionTest(ms), elapsed);
+const { frames, items, longTasks, breakdown } = await page.evaluate(() => ({ frames: window.__terrainApp.frames, items: window.__terrainApp.itemCount, longTasks: window.__longTasks, breakdown: window.__terrainApp.breakdown.slice(-300) }));
 await browser.close();
 const cpu = frames.map((f) => f[1]).sort((a, b) => a - b);
 const sorted = [...intervals].sort((a, b) => a - b);

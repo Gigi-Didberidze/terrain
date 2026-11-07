@@ -12,7 +12,7 @@ pub struct Store {
     conn: Connection,
 }
 
-/// One mined commit (see compass-git).
+/// One mined commit (see terrain-git).
 #[derive(Clone, Debug, PartialEq)]
 pub struct CommitRow {
     pub id: String,

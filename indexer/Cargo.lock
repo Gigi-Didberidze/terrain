@@ -142,71 +142,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "compass-core"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "memchr",
- "postcard",
- "rayon",
- "rusqlite",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "compass-engine"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "compass-core",
- "compass-git",
- "compass-parse",
- "ignore",
- "memchr",
- "parking_lot 0.13.0",
- "rayon",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "compass-git"
-version = "0.1.0"
-dependencies = [
- "gix",
- "rayon",
- "serde",
- "tempfile",
-]
-
-[[package]]
-name = "compass-parse"
-version = "0.1.0"
-dependencies = [
- "compass-core",
- "postcard",
- "regex",
- "serde",
- "streaming-iterator",
- "tree-sitter",
- "tree-sitter-c",
- "tree-sitter-c-sharp",
- "tree-sitter-cpp",
- "tree-sitter-go",
- "tree-sitter-java",
- "tree-sitter-javascript",
- "tree-sitter-kotlin-ng",
- "tree-sitter-lua",
- "tree-sitter-php",
- "tree-sitter-python",
- "tree-sitter-ruby",
- "tree-sitter-rust",
- "tree-sitter-swift",
- "tree-sitter-typescript",
-]
-
-[[package]]
 name = "constant_time_eq"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2191,12 +2126,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "terrain-core"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "memchr",
+ "postcard",
+ "rayon",
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "terrain-engine"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "ignore",
+ "memchr",
+ "parking_lot 0.13.0",
+ "rayon",
+ "serde_json",
+ "tempfile",
+ "terrain-core",
+ "terrain-git",
+ "terrain-parse",
+]
+
+[[package]]
+name = "terrain-git"
+version = "0.1.0"
+dependencies = [
+ "gix",
+ "rayon",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
 name = "terrain-indexer"
 version = "0.1.0"
 dependencies = [
  "base64",
- "compass-core",
- "compass-engine",
  "libmimalloc-sys",
  "memory-stats",
  "mimalloc",
@@ -2204,7 +2176,35 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "terrain-core",
+ "terrain-engine",
  "tree-sitter",
+]
+
+[[package]]
+name = "terrain-parse"
+version = "0.1.0"
+dependencies = [
+ "postcard",
+ "regex",
+ "serde",
+ "streaming-iterator",
+ "terrain-core",
+ "tree-sitter",
+ "tree-sitter-c",
+ "tree-sitter-c-sharp",
+ "tree-sitter-cpp",
+ "tree-sitter-go",
+ "tree-sitter-java",
+ "tree-sitter-javascript",
+ "tree-sitter-kotlin-ng",
+ "tree-sitter-lua",
+ "tree-sitter-php",
+ "tree-sitter-python",
+ "tree-sitter-ruby",
+ "tree-sitter-rust",
+ "tree-sitter-swift",
+ "tree-sitter-typescript",
 ]
 
 [[package]]

@@ -5,8 +5,8 @@
 //! commits carry no file list, and commits touching more than COUPLING_MAX_FILES files (mass
 //! renames, reformatting) are left out of coupling but still count as churn.
 
-use compass_core::store::CommitRow;
 use std::collections::HashMap;
+use terrain_core::store::CommitRow;
 
 /// Churn window.
 pub const CHURN_DAYS: i64 = 90;

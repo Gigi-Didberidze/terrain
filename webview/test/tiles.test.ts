@@ -63,3 +63,10 @@ test("tile cache evicts least recently used", () => {
   assert.ok(c.has("0/0/0"));
   assert.ok(!c.has("1/0/0"));
 });
+
+test("tile magic matches the indexer's (the bytes \"TRRN\", read little-endian)", () => {
+  // The indexer writes MAGIC = u32::from_le_bytes(*b"TRRN"); a stale number here makes every
+  // tile fail to decode, which only the visual tests would otherwise notice.
+  const bytes = new Uint8Array(new Uint32Array([MAGIC]).buffer);
+  assert.equal(String.fromCharCode(...bytes), "TRRN");
+});

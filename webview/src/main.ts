@@ -4,4 +4,4 @@ import { App } from "./app.ts";
 
 const app = new App(document.getElementById("app")!);
 // Exposed for Playwright performance and visual tests.
-(window as unknown as { __compassApp: App }).__compassApp = app;
+(window as unknown as { __terrainApp: App }).__terrainApp = app;

@@ -2,8 +2,8 @@
 //! radius (transitive dependents, depth ≤ 6), the tests that reach a node, and complexity.
 
 use crate::Engine;
-use compass_core::model::*;
 use std::collections::{HashMap, HashSet, VecDeque};
+use terrain_core::model::*;
 
 /// Depth cap for blast radius (the plan's display limit).
 pub const BLAST_DEPTH: u32 = 6;
@@ -233,7 +233,7 @@ impl Engine {
         let lang = self.graph.node(file).lang;
         let by_line: HashMap<u32, u32> = std::fs::read(self.root.join(path))
             .map(|src| {
-                compass_parse::complexity::complexity(lang, &src)
+                terrain_parse::complexity::complexity(lang, &src)
                     .into_iter()
                     .collect()
             })

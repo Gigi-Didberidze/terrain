@@ -3,9 +3,9 @@
 //! nothing and are counted as external.
 
 use crate::project::{join, Project};
-use compass_core::model::Lang;
-use compass_parse::Import;
 use std::collections::{HashMap, HashSet};
+use terrain_core::model::Lang;
+use terrain_parse::Import;
 
 /// Workspace file lookups, maintained incrementally by the engine.
 #[derive(Default, Debug)]

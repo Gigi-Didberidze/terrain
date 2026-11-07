@@ -1,4 +1,4 @@
-//! compass-parse: tree-sitter extraction (Tier 1 and 2) and path-string edges (Tier 3).
+//! terrain-parse: tree-sitter extraction (Tier 1 and 2) and path-string edges (Tier 3).
 
 pub mod complexity;
 pub mod extract;

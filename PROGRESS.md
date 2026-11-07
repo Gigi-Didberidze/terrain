@@ -1,12 +1,12 @@
 # Progress
 
-The product is named **Terrain** (D50); earlier entries say Compass.
+The product is named **Terrain** (D50); earlier entries say Terrain.
 
 **Current milestone:** M6 — Polish and ship: done except publishing, which waits for the owner (D49)
 
 ## M0 — Skeleton: done
 - Monorepo: Rust indexer workspace (`core`, `parse`, `git`, `engine`, `rpc`), extension host, webview, shared protocol schema with generated bindings.
-- `Compass: Open Map` opens a themed panel backed by the indexer; verified by a VS Code integration test.
+- `Terrain: Open Map` opens a themed panel backed by the indexer; verified by a VS Code integration test.
 - CI: lint, typecheck, unit tests; per-OS build jobs (native and cross target each) producing six VSIX packages; integration tests on linux-x64, win32-x64, darwin-arm64; soft benchmark job.
 - `bench/` clones the pinned corpus and writes `bench/results/latest.json` and `history.jsonl`.
 
@@ -76,14 +76,14 @@ Profiling log (measure first):
 - Import cycles at file and directory level (Tarjan), each with the edge whose removal breaks most of it (D31).
 - Entry points per language; dead-code candidates (labelled candidates); cyclomatic complexity on demand.
 - Lenses 1 (Structure) and 2 (Load-bearing); keys 3–6 say which milestone brings them.
-- Context sidebar (native tree, follows the cursor or the map selection); CodeLens `N callers · blast N · N tests` (plus complexity when ≥ 10); Compass: Show Cycles / Show Dead-Code Candidates.
+- Context sidebar (native tree, follows the cursor or the map selection); CodeLens `N callers · blast N · N tests` (plus complexity when ≥ 10); Terrain: Show Cycles / Show Dead-Code Candidates.
 - Analysis runs after indexing and again 500 ms after edits settle, off the request path: django 38–71 ms, vscode 203 ms.
 
 ### M3 gate
 | Gate | Result |
 | --- | --- |
 | django top 20 load-bearing files reviewed by hand | 19/20 judged core (below); utils/archive.py questionable |
-| Cycle list matches dependency-cruiser on vscode `src/` | Compass finds all 384 files dependency-cruiser reports in cycles (100%); 6 extra files trace to one real 4-file loop (event → lifecycle → arrays → sequence → event) whose every edge dependency-cruiser itself reports but does not flag |
+| Cycle list matches dependency-cruiser on vscode `src/` | Terrain finds all 384 files dependency-cruiser reports in cycles (100%); 6 extra files trace to one real 4-file loop (event → lifecycle → arrays → sequence → event) whose every edge dependency-cruiser itself reports but does not flag |
 
 django top 20 (final run): 1 utils/datastructures · 2 utils/functional · 3 utils/connection · 4 utils/deprecation · 5 core/exceptions · 6 utils/hashable · 7 conf/__init__ · 8 utils/deconstruct · 9 db/models/__init__ · 10 utils/version · 11 utils/regex_helper · 12 utils/archive (questionable: likely name-matched `extract` calls) · 13 utils/translation/__init__ · 14 test/utils · 15 urls/__init__ · 16 db/__init__ · 17 utils/timezone · 18 utils/dateformat · 19 db/models/expressions · 20 django/__init__.
 
@@ -92,7 +92,7 @@ vscode top 20 (sanity check): base/common linkedList, lifecycle, uri, iterator, 
 Review log: the first ranking was wrong (template/loader_tags.py #1, a 486-file "cycle"), traced to the global name-matching tier; three rounds of fixes (D30, D31) produced the lists above.
 
 ## M4 — History: done (gate below)
-- compass-git: history mined with gix (no `git` process), commit file lists diffed in parallel; incremental from the merge base of the old and new HEAD, so branch switches and rebases forget dropped commits (D37). Commits persist in the store; a restart re-reads them instead of re-mining.
+- terrain-git: history mined with gix (no `git` process), commit file lists diffed in parallel; incremental from the merge base of the old and new HEAD, so branch switches and rebases forget dropped commits (D37). Commits persist in the store; a restart re-reads them instead of re-mining.
 - Churn (commits in the last 90 days), ownership by commits for the lens and by lines (blame) in the sidebar (D35), co-change coupling with support ≥ 5 (D36).
 - Hidden dependencies: coupled pairs with no static edge, data/generated files left out, ranked by evidence. Co-change joins the Leiden graph. Misplaced files (D38).
 - Lenses 3 (Churn), 4 (Coupling: partners of the selection, red = hidden, everything else muted) and 5 (Ownership, with an author key in the legend); hover cards show churn and owner.
@@ -108,10 +108,10 @@ Quality review: the first hidden-dependency list on vscode was led by test snaps
 
 ## M5 — Neighbourhood, Path and Review: done (gate below)
 - Neighbourhood view (N, Ctrl/Cmd+Alt+N, CodeLens click, sidebar context menu): the centre, two columns of dependents on the left and dependencies on the right, at the centre's granularity (D40), laid out by a layered layout (D39); follows the cursor when follow mode is on; arrow keys move along edges.
-- Path view (P: from the pinned or previous selection to the selection; Compass: Find Path Between…): up to three shortest chains (D43).
-- Change lens (6) and review mode: files changed since the branch left its base, plus uncommitted and untracked work (D41); status bar "Compass: N changed · blast M"; Compass: Review Changes (Ctrl/Cmd+Alt+R) lists them by load-bearing score (D44); Compass: Blast Radius of Current Change.
+- Path view (P: from the pinned or previous selection to the selection; Terrain: Find Path Between…): up to three shortest chains (D43).
+- Change lens (6) and review mode: files changed since the branch left its base, plus uncommitted and untracked work (D41); status bar "Terrain: N changed · blast M"; Terrain: Review Changes (Ctrl/Cmd+Alt+R) lists them by load-bearing score (D44); Terrain: Blast Radius of Current Change.
 - Semantic enrichment through VS Code's call hierarchy for the symbol in view (D42): confirmed calls draw solid, contradicted name matches disappear.
-- Compass: Export View as SVG (map or diagram, as drawn). Keyboard map complete: / Enter arrows + - 0 1–6 M N P F Backspace . ?
+- Terrain: Export View as SVG (map or diagram, as drawn). Keyboard map complete: / Enter arrows + - 0 1–6 M N P F Backspace . ?
 
 ### M5 gate
 | Gate | Result |
@@ -127,7 +127,7 @@ Benchmark note: the regression check compared this run with the last recorded dj
 - Accessibility: a live region speaks the selection (kind, name, place, size, connections), lens and view changes and "map ready"; the legend is no longer a chatty live region; search is a combobox with active descendant and a "no matches" row; reduced motion turns camera animations into jumps; keyboard-only operation throughout; the sidebar tree, status bar and state screens carry labels.
 - Contrast: labels meet WCAG AA on every fill under every lens in three themes (D45, D46).
 - State screens with actions; quiet restart after one crash, shown after two (D48).
-- Settings: compass.exclude, compass.history.enabled, compass.map.follow added; watched files obey the same ignore rules as the full walk (D47, fixes build output reaching the map).
+- Settings: terrain.exclude, terrain.history.enabled, terrain.map.follow added; watched files obey the same ignore rules as the full walk (D47, fixes build output reaching the map).
 - Walkthrough (three steps, real screenshots in light and dark), Marketplace icon, README with screenshots from django and vscode; the Marketplace README is generated from it (CI checks it is current).
 - Packaging: CI builds VSIX files for win32, linux and darwin on x64 and arm64 with the indexer inside; locally a win32-x64 VSIX is 6.7 MB.
 

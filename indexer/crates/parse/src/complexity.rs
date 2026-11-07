@@ -4,7 +4,7 @@
 
 use crate::extract::parse;
 use crate::langs::spec;
-use compass_core::model::Lang;
+use terrain_core::model::Lang;
 use tree_sitter::Node;
 
 /// Node kinds that add a path through the code, across the Tier 1 grammars.
