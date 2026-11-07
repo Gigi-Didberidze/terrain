@@ -1,7 +1,7 @@
 // The map view: tile streaming, scene assembly, input and the render loop.
 // Frames are drawn only when something changes; nothing animates on its own.
 import type { EdgesResult, HistorySummary, MapInfo, NodeInfo, ReviewResult } from "../../protocol/generated/protocol.ts";
-import type { HostToView, ViewTile } from "../../protocol/webview.ts";
+import type { HostToView, StateAction, ViewTile } from "../../protocol/webview.ts";
 import { Camera } from "./camera.ts";
 import { frameToSvg } from "./export/svg.ts";
 import { GraphView, neighbourhoodModel, pathModel } from "./graph.ts";
@@ -11,9 +11,11 @@ import { Canvas2DRenderer } from "./render/canvas2d.ts";
 import { GLRenderer } from "./render/gl.ts";
 import { readTheme, type Theme } from "./render/theme.ts";
 import type { Frame, Line, Renderer, TileDraw } from "./render/types.ts";
-import { buildLabels, buildOverlay, buildTileBatch, hereMarker, sortForPaint, WidthCache, type BaseStyle, type Outline } from "./scene.ts";
+import { buildLabels, buildOverlay, buildTileBatch, fillFor, hereMarker, sortForPaint, WidthCache, type BaseStyle, type Outline } from "./scene.ts";
 import { decodeTile, FLAG_CHANGED, KIND_DIR, KIND_FILE, TileCache, tileKey, type DecodedTile, type Item } from "./tiles.ts";
 import { Help } from "./ui/help.ts";
+import { Announcer } from "./ui/announcer.ts";
+import { auditTheme, type ContrastCheck } from "./render/audit.ts";
 import { couplingMuted, LENSES, lensColor, shortAuthor, type CouplingFocus, type LensId } from "./lenses.ts";
 import { HoverCard } from "./ui/hover.ts";
 import { Legend } from "./ui/legend.ts";
@@ -77,6 +79,8 @@ export class App {
   private readonly hoverCard: HoverCard;
   private readonly search: SearchBox;
   private readonly help: Help;
+  private readonly announcer: Announcer;
+  private announcedReady = false;
   private readonly stateEl: HTMLElement;
   private hoverTimer = 0;
   private hoverSeq = 0;
@@ -87,7 +91,8 @@ export class App {
     this.canvas = document.createElement("canvas");
     this.canvas.className = "map";
     this.canvas.tabIndex = 0;
-    this.canvas.setAttribute("aria-label", "Code map. Press question mark for keyboard shortcuts.");
+    this.canvas.setAttribute("aria-label", "Code map. Arrow keys move the selection, Enter opens it, slash searches, question mark lists all keys.");
+    this.canvas.setAttribute("aria-roledescription", "code map");
     root.append(this.canvas);
     this.stateEl = document.createElement("div");
     this.stateEl.className = "state";
@@ -100,6 +105,7 @@ export class App {
     this.search.onPick = (h) => void this.reveal(h.slot, true);
     this.search.onClose = () => this.canvas.focus();
     this.help = new Help(root);
+    this.announcer = new Announcer(root);
     this.camera.bottomInset = 24;
     this.follow = this.host.state.follow !== false;
     const savedLens = Number(this.host.state.lens);
@@ -159,8 +165,9 @@ export class App {
   private onHost(m: HostToView): void {
     switch (m.type) {
       case "status":
-        if (m.state === "error") this.setState(m.text, "error");
-        else if (!this.info) this.setState(m.text);
+        if (m.state === "error" || m.state === "empty") this.setState(m.text, m.state, m.detail, m.actions);
+        else if (m.state === "starting") this.setState(m.text, "info", m.detail);
+        else this.setState("");
         if (m.state === "ready") void this.loadInfo();
         break;
       case "progress":
@@ -187,6 +194,10 @@ export class App {
         break;
       case "reveal":
         void this.reveal(m.slot, true);
+        break;
+      case "config":
+        // The setting is the default; F toggles it for this panel and is remembered.
+        if (this.host.state.follow === undefined && this.follow !== m.followDefault) this.toggleFollow();
         break;
       case "command":
         if (m.command === "fit") this.fit(true);
@@ -274,8 +285,17 @@ export class App {
       if (saved) this.camera.jumpTo(saved);
       else this.fit(false);
     }
+    if (info.phase === "idle" && info.files > 0 && !this.announcedReady) {
+      this.announcedReady = true;
+      this.announcer.say(`Map of ${info.rootName} ready: ${info.files.toLocaleString("en-US")} files. ${LENSES[this.lens].legend}.`);
+    }
     if (info.files === 0) {
-      if (info.phase === "idle") this.setState(`No files to map in ${info.rootName}.`);
+      if (info.phase === "idle")
+        this.setState(
+          `Nothing to map in ${info.rootName}`,
+          "empty",
+          "The folder is empty, or everything in it is ignored (.gitignore, .ignore and the usual build and dependency folders).",
+        );
     } else this.setState("");
     this.updateLegend();
     if (this.pendingFollow) this.onFollow(this.pendingFollow);
@@ -295,10 +315,44 @@ export class App {
     this.invalidate();
   }
 
-  private setState(text: string, kind: "info" | "error" = "info"): void {
-    this.stateEl.textContent = text;
+  /**
+   * Whole-view state. "info" is a quiet line over the map (starting, indexing); "empty" and
+   * "error" replace the map with a title, one line of explanation and optional actions.
+   */
+  private setState(text: string, kind: "info" | "error" | "empty" = "info", detail?: string, actions: StateAction[] = []): void {
+    this.stateEl.replaceChildren();
     this.stateEl.dataset.kind = kind;
     this.stateEl.hidden = !text;
+    // A screen that replaces the map also replaces its legend.
+    this.legend.el.hidden = !!text && kind !== "info";
+    if (!text) return;
+    const box = document.createElement("div");
+    box.className = "state-box";
+    const title = document.createElement("div");
+    title.className = "state-title";
+    title.textContent = text;
+    box.append(title);
+    if (detail) {
+      const d = document.createElement("div");
+      d.className = "state-detail";
+      d.textContent = detail;
+      box.append(d);
+    }
+    if (actions.length) {
+      const row = document.createElement("div");
+      row.className = "state-actions";
+      actions.forEach((a, i) => {
+        const b = document.createElement("button");
+        b.className = i === 0 ? "primary" : "secondary";
+        b.textContent = a.label;
+        b.addEventListener("click", () => this.host.post({ type: "action", command: a.command }));
+        row.append(b);
+      });
+      box.append(row);
+      // Keyboard users land on the first action.
+      queueMicrotask(() => (row.firstElementChild as HTMLElement | null)?.focus());
+    }
+    this.stateEl.append(box);
   }
 
   private updateLegend(): void {
@@ -603,8 +657,15 @@ export class App {
     const moreToDecode = this.drainInbox(t0);
     const tiles = this.assemble(t0);
     const t1 = performance.now();
+    const style = this.baseStyle();
     const labels = this.info
-      ? buildLabels(this.labelCandidates(), { camera: this.camera, theme: this.theme, measure: (t) => this.widths.width(t), max: 400 })
+      ? buildLabels(this.labelCandidates(), {
+          camera: this.camera,
+          theme: this.theme,
+          measure: (t) => this.widths.width(t),
+          max: 400,
+          fill: (it) => fillFor(it, style),
+        })
       : [];
     const t2 = performance.now();
     const lines = [...this.edgeLines(), ...hereMarker(this.findItem(this.here), this.camera, this.theme)];
@@ -651,10 +712,21 @@ export class App {
       if (this.history.length > 200) this.history.shift();
     }
     this.selected = slot;
+    if (slot !== null) void this.announceNode(slot);
     if (this.lens === 4) void this.loadCoupling();
     this.updateLegend();
     this.host.post({ type: "select", slot });
     this.invalidate();
+  }
+
+  /** Test hook: contrast of every label colour against every fill, in the active theme. */
+  themeAudit(): ContrastCheck[] {
+    return auditTheme(this.theme);
+  }
+
+  /** Test hook: the active theme's accent and background, as RGBA. */
+  themeColors(): { accent: number[]; background: number[] } {
+    return { accent: [...this.theme.accent], background: [...this.theme.background] };
   }
 
   /**
@@ -687,8 +759,32 @@ export class App {
     });
   }
 
+  /** Speaks the selected node: what it is, where, its size and its connections. */
+  private async announceNode(slot: number): Promise<void> {
+    try {
+      const n = await this.host.request("node/info", { slot });
+      if (this.selected !== slot) return;
+      const [title, ...lines] = (() => {
+        const h = hoverLines(n);
+        return [h.title, ...h.lines];
+      })();
+      const where = this.mode === "graph" ? this.graphPosition(slot) : "";
+      this.announcer.say([`${title}.`, ...lines.map((l) => `${l.replace(/ · /g, ", ")}.`), where].filter(Boolean).join(" "));
+    } catch {
+      // Node gone.
+    }
+  }
+
+  /** "uses the centre" / "used by the centre" for the Neighbourhood, for screen readers. */
+  private graphPosition(slot: number): string {
+    const n = this.graph.node(slot);
+    if (!n || this.graph.model?.kind !== "neighbourhood") return "";
+    return ["Uses what uses the centre.", "Uses the centre.", "The centre.", "Used by the centre.", "Used by what the centre uses."][n.column] ?? "";
+  }
+
   private flashNotice(text: string): void {
     this.lensNotice = text;
+    this.announcer.say(text);
     this.updateLegend();
     window.setTimeout(() => {
       if (this.lensNotice !== text) return;
@@ -718,6 +814,7 @@ export class App {
     if (id === this.lens) return;
     this.lens = id;
     this.styleVersion++;
+    this.announcer.say(`${def.name} lens. ${def.legend}.`);
     this.host.setState({ lens: id });
     if (id === 4) void this.loadCoupling();
     this.updateLegend();
@@ -795,6 +892,7 @@ export class App {
     if (this.mode === "map") return;
     this.mode = "map";
     this.styleVersion++;
+    this.announcer.say("Map.");
     // Keep the map where the reader left it; only bring the selection into view if it is off-screen.
     const sel = this.selected;
     if (sel !== null)
@@ -820,6 +918,7 @@ export class App {
       const newCentre = this.mode !== "graph" || this.graph.model?.focus !== slot;
       this.graph.set(neighbourhoodModel(r), (t) => this.renderer.measure(t, 11));
       this.mode = "graph";
+      if (newCentre) this.announcer.say(`${this.graph.model!.summary}. Left and right arrows follow the edges.`);
       if (this.selected !== slot) this.select(slot);
       if (newCentre) this.graph.fit(false);
       this.updateLegend();
@@ -836,6 +935,7 @@ export class App {
       const r = await this.host.request("view/path", { from, to });
       if (seq !== this.graphSeq) return;
       this.graph.set(pathModel(r), (t) => this.renderer.measure(t, 11));
+      this.announcer.say(`${this.graph.model!.summary}.`);
       this.mode = "graph";
       this.graph.fit(false);
       this.updateLegend();

@@ -22,9 +22,15 @@ export class SearchBox {
     this.input.spellcheck = false;
     this.input.placeholder = "Search files and symbols";
     this.input.setAttribute("aria-label", "Search files and symbols");
+    this.input.setAttribute("role", "combobox");
+    this.input.setAttribute("aria-autocomplete", "list");
+    this.input.setAttribute("aria-controls", "compass-search-list");
+    this.input.setAttribute("aria-expanded", "false");
     this.list = document.createElement("div");
     this.list.className = "search-list";
+    this.list.id = "compass-search-list";
     this.list.setAttribute("role", "listbox");
+    this.list.setAttribute("aria-label", "Matches");
     this.el.append(this.input, this.list);
     parent.append(this.el);
     this.input.addEventListener("input", () => void this.run());
@@ -68,11 +74,25 @@ export class SearchBox {
 
   private render(): void {
     this.list.replaceChildren();
+    this.input.setAttribute("aria-expanded", String(this.hits.length > 0));
+    this.input.removeAttribute("aria-activedescendant");
+    if (!this.hits.length && this.input.value.trim()) {
+      const none = document.createElement("div");
+      none.className = "search-row muted";
+      none.setAttribute("role", "option");
+      none.setAttribute("aria-disabled", "true");
+      none.textContent = "No files or symbols match";
+      this.list.append(none);
+      return;
+    }
     this.hits.forEach((h, i) => {
       const row = document.createElement("div");
       row.className = "search-row";
+      row.id = `compass-search-${i}`;
       row.setAttribute("role", "option");
       row.setAttribute("aria-selected", String(i === this.active));
+      row.setAttribute("aria-label", `${h.kind} ${h.name}, ${h.kind === "file" ? h.path : `${h.path} line ${h.line}`}`);
+      if (i === this.active) this.input.setAttribute("aria-activedescendant", row.id);
       const name = document.createElement("span");
       name.textContent = h.name;
       const kind = document.createElement("span");

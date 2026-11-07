@@ -11,7 +11,8 @@ export class Legend {
   constructor(parent: HTMLElement) {
     this.el = document.createElement("div");
     this.el.className = "legend";
-    this.el.setAttribute("role", "status");
+    // Not a live region: it changes with every progress tick. The Announcer speaks what matters.
+    this.el.setAttribute("aria-label", "Legend");
     this.measure = document.createElement("span");
     this.count = document.createElement("button");
     this.count.className = "link";

@@ -29,8 +29,21 @@ export const VIEW_REQUEST_METHODS: readonly ViewRequestMethod[] = [
   "review/summary",
 ];
 
+/** Commands a state screen may offer; the host runs only these. */
+export type StateCommand = "compass.restartIndexer" | "compass.showLog" | "compass.reindex" | "workbench.action.files.openFolder";
+export const STATE_COMMANDS: readonly StateCommand[] = ["compass.restartIndexer", "compass.showLog", "compass.reindex", "workbench.action.files.openFolder"];
+
+export interface StateAction {
+  label: string;
+  command: StateCommand;
+}
+
 export type HostToView =
-  | { type: "status"; state: "starting" | "ready" | "error"; text: string }
+  /**
+   * Whole-view states. "starting" and "ready" are transient; "empty" (nothing to map, no folder)
+   * and "error" replace the map with a title, one line of explanation and actions.
+   */
+  | { type: "status"; state: "starting" | "ready" | "error" | "empty"; text: string; detail?: string; actions?: StateAction[] }
   | { type: "progress"; phase: string; done: number; total: number }
   | { type: "info"; info: MapInfo }
   | { type: "changed"; epoch: number; layout: boolean }
@@ -39,6 +52,8 @@ export type HostToView =
   /** The active editor moved: the "you are here" node (null when the file is not on the map). */
   | { type: "follow"; node: NodeInfo | null }
   | { type: "reveal"; slot: number }
+  /** Settings the view needs; sent when the panel opens. */
+  | { type: "config"; followDefault: boolean }
   | { type: "command"; command: "fit" | "toggleFollow" | "search" | "map" | "exportSvg" }
   | { type: "command"; command: "neighbourhood"; slot: number }
   | { type: "command"; command: "path"; from: number; to: number }
@@ -46,6 +61,8 @@ export type HostToView =
 
 export type ViewToHost =
   | { type: "ready" }
+  /** A button on a state screen. */
+  | { type: "action"; command: StateCommand }
   | { type: "request"; id: number; method: ViewRequestMethod; params: Requests[ViewRequestMethod]["params"] }
   | { type: "open"; slot: number }
   | { type: "select"; slot: number | null }

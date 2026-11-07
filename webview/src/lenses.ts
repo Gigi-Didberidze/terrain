@@ -1,6 +1,6 @@
 // Lenses colour the map by exactly one measure at a time (keys 1–6). Colours come from theme
 // tokens; the legend always names the measure and its unit.
-import { mix, ramp, type RGBA, type Theme } from "./render/theme.ts";
+import { contrast, mix, ramp, type RGBA, type Theme } from "./render/theme.ts";
 import { FLAG_BLAST, FLAG_CHANGED, KIND_DIR, KIND_FILE, type Item } from "./tiles.ts";
 
 export type LensId = 1 | 2 | 3 | 4 | 5 | 6;
@@ -44,6 +44,40 @@ export interface CouplingFocus {
 
 /** Fill for an item under a lens, or null for the neutral fill. Directories are never coloured. */
 export function lensColor(lens: LensId, it: Item, theme: Theme, coupling?: CouplingFocus | null): RGBA | null {
+  const c = rawLensColor(lens, it, theme, coupling);
+  return c && legible(c, theme);
+}
+
+/** Labels need 4.5:1 against their fill (WCAG AA). */
+const MIN_CONTRAST = 4.5;
+const legibleCache = new WeakMap<Theme, Map<number, RGBA>>();
+
+/**
+ * Keeps a lens colour if either the theme's text or its background colour reaches 4.5:1 on it
+ * (labels pick that one, see textOn); otherwise pulls it toward the background until the text
+ * colour does. Mid-tones are the only casualties; vivid and deep colours pass unchanged.
+ * Checked in three themes by test-visual.
+ */
+export function legible(c: RGBA, theme: Theme): RGBA {
+  let cache = legibleCache.get(theme);
+  if (!cache) legibleCache.set(theme, (cache = new Map()));
+  const key = (c[0] << 16) | (c[1] << 8) | c[2];
+  const hit = cache.get(key);
+  if (hit) return hit;
+  let out = c;
+  if (Math.max(contrast(theme.foreground, c), contrast(theme.background, c)) < MIN_CONTRAST) {
+    for (let i = 1; i <= 20 && contrast(theme.foreground, out) < MIN_CONTRAST; i++) out = mix(c, theme.background, i / 20);
+  }
+  cache.set(key, out);
+  return out;
+}
+
+/** Label colour on a fill: the theme's text colour, or its background colour where that reads better. */
+export function textOn(fill: RGBA, theme: Theme): RGBA {
+  return contrast(theme.foreground, fill) >= contrast(theme.background, fill) ? theme.foreground : theme.background;
+}
+
+function rawLensColor(lens: LensId, it: Item, theme: Theme, coupling?: CouplingFocus | null): RGBA | null {
   if (it.kind === KIND_DIR) return null;
   const isFile = it.kind === KIND_FILE;
   const base = isFile ? theme.fileFill : theme.symbolFill;

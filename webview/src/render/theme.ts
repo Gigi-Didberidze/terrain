@@ -48,6 +48,20 @@ export function cssColor(value: string, fallback: string): RGBA {
   return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, Math.round((parts[3] ?? 1) * 255)];
 }
 
+/** WCAG 2 relative luminance. */
+export function luminance([r, g, b]: RGBA): number {
+  const ch = (v: number) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+}
+
+export function contrast(a: RGBA, b: RGBA): number {
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+  return (x! + 0.05) / (y! + 0.05);
+}
+
 export function mix(a: RGBA, b: RGBA, t: number): RGBA {
   return [
     Math.round(a[0] + (b[0] - a[0]) * t),

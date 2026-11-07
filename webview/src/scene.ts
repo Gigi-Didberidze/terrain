@@ -2,6 +2,7 @@
 import type { Camera } from "./camera.ts";
 import type { Label, Line, RectBatch } from "./render/types.ts";
 import type { RGBA, Theme } from "./render/theme.ts";
+import { textOn } from "./lenses.ts";
 import { FLAG_DATA, FLAG_GENERATED, KIND_DIR, KIND_FILE, type DecodedTile, type Item } from "./tiles.ts";
 
 /** What decides fills: the theme and the active lens. Selection is drawn as an overlay. */
@@ -146,6 +147,8 @@ export function buildOverlay(outlines: Outline[], originX: number, originY: numb
 export interface LabelContext {
   camera: Camera;
   theme: Theme;
+  /** Fill under each item's label (lens colours), to pick a readable label colour. */
+  fill?: (it: Item) => RGBA;
   measure: (text: string, size: 11) => number;
   max: number;
 }
@@ -207,7 +210,8 @@ export function buildLabels(items: Item[], ctx: LabelContext): Label[] {
     const box = { x, y, w: measure(text), h: 13 };
     if (!free(box)) continue;
     placed.add(box);
-    const color = isDir ? theme.muted : theme.foreground;
+    // On a lens colour the label takes whichever of the theme's text and background reads better.
+    const color = isDir ? theme.muted : ctx.fill ? textOn(ctx.fill(it), theme) : theme.foreground;
     out.push({ text, x, y, color, size: 11 });
     if (isDir && it.hidden >= MIN_AGGREGATE && sh > 60) {
       const extra = fitText(`+ ${it.hidden.toLocaleString("en-US")} small files`, avail, measure);

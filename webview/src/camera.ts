@@ -10,6 +10,9 @@ export interface View {
 }
 
 export const TRANSITION_MS = 150;
+
+const reducedMotion = (): boolean =>
+  typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 const easeOut = (t: number): number => 1 - (1 - t) ** 3;
 
 export class Camera {
@@ -76,6 +79,8 @@ export class Camera {
   }
 
   animateTo(target: View, now = performance.now()): void {
+    // Motion only preserves orientation; when the OS asks for less motion, jump instead.
+    if (reducedMotion()) return this.jumpTo(target);
     this.anim = { from: { ...this.view }, to: this.clamp(target), start: now };
   }
 
