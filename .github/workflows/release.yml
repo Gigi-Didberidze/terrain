@@ -1,0 +1,92 @@
+name: release
+
+# Runs only by hand (Actions tab → release → Run workflow). By default it only checks: it takes
+# the six platform packages that CI built for the chosen commit, validates them and verifies that
+# both publishing tokens can publish as gigi-didberidze. It publishes only when "publish" is ticked.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to the VS Code Marketplace and Open VSX (unticked: check only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  release:
+    name: ${{ inputs.publish && 'publish' || 'check' }}
+    runs-on: ubuntu-latest
+    env:
+      PUBLISHER: gigi-didberidze
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+
+      - name: Find the CI run that built this commit
+        id: ci
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          run=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          if [ -z "$run" ]; then
+            echo "::error::No successful CI run for $GITHUB_SHA. Release only commits whose CI passed."
+            exit 1
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - name: Download the six platform packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          path: vsix
+          merge-multiple: true
+          run-id: ${{ steps.ci.outputs.run }}
+          github-token: ${{ github.token }}
+
+      - name: Check the packages
+        run: |
+          ls -la vsix
+          count=$(ls vsix/*.vsix | wc -l)
+          if [ "$count" -ne 6 ]; then echo "::error::expected 6 packages, found $count"; exit 1; fi
+          version=$(node -p "require('./extension/package.json').version")
+          for f in vsix/*.vsix; do
+            # Each package must carry the right ID, version and an indexer binary for its platform.
+            unzip -p "$f" extension.vsixmanifest | grep -q "Id=\"terrain\"" || { echo "::error::$f: wrong ID"; exit 1; }
+            unzip -p "$f" extension.vsixmanifest | grep -q "Version=\"$version\"" || { echo "::error::$f: not version $version"; exit 1; }
+            unzip -l "$f" | grep -q "extension/bin/terrain-indexer" || { echo "::error::$f: no indexer binary"; exit 1; }
+            echo "ok: $f (version $version)"
+          done
+
+      - name: Verify the Marketplace token
+        env: { VSCE_PAT: "${{ secrets.VSCE_PAT }}" }
+        run: npx vsce verify-pat "$PUBLISHER"
+
+      - name: Verify the Open VSX token
+        env: { OVSX_PAT: "${{ secrets.OVSX_PAT }}" }
+        run: |
+          if out=$(npx ovsx verify-pat "$PUBLISHER" 2>&1); then
+            echo "$out"
+          elif echo "$out" | grep -qi "not found"; then
+            # The namespace is created on the first publish; until then only the token's format can be checked.
+            echo "$out"
+            echo "::notice::Open VSX namespace $PUBLISHER does not exist yet; it is created on the first publish."
+          else
+            echo "$out"; exit 1
+          fi
+
+      - name: Publish to the VS Code Marketplace
+        if: ${{ inputs.publish }}
+        env: { VSCE_PAT: "${{ secrets.VSCE_PAT }}" }
+        run: npx vsce publish --packagePath vsix/*.vsix
+
+      - name: Publish to Open VSX
+        if: ${{ inputs.publish }}
+        env: { OVSX_PAT: "${{ secrets.OVSX_PAT }}" }
+        run: |
+          npx ovsx verify-pat "$PUBLISHER" >/dev/null 2>&1 || npx ovsx create-namespace "$PUBLISHER"
+          for f in vsix/*.vsix; do npx ovsx publish "$f"; done
