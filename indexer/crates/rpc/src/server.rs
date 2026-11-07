@@ -128,6 +128,8 @@ impl Server {
         };
         let options = Options {
             cap_data_files: ip.cap_data_files.unwrap_or(true),
+            exclude: ip.exclude.unwrap_or_default(),
+            history: ip.history.unwrap_or(true),
             ..Options::default()
         };
         let shared = Engine::new(&root, store, options).shared();

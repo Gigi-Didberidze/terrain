@@ -2,8 +2,13 @@
 //! get its BLAKE3 hash, lines of code and generated-file status.
 
 use compass_core::model::{flags, Lang};
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use ignore::overrides::{Override, OverrideBuilder};
 use ignore::{WalkBuilder, WalkState};
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 pub const DEFAULT_SIZE_CAP: u64 = 1024 * 1024;
@@ -19,6 +24,112 @@ pub struct Discovered {
 /// Directory names that are never part of the map.
 fn is_excluded_dir(name: &str) -> bool {
     matches!(name, ".git" | "node_modules" | ".hg" | ".svn")
+}
+
+/// What belongs on the map: not in a built-in excluded folder, not ignored by .gitignore,
+/// .ignore or .git/info/exclude, and not matched by the user's `compass.exclude` patterns.
+/// The full walk applies the same rules through `ignore`'s walker; this answers for single
+/// paths reported by the file watcher (a build writing thousands of files into an ignored
+/// folder must not reach the map).
+pub struct Filter {
+    root: PathBuf,
+    user: Override,
+    /// Ignore rules per directory (workspace-relative, "" = root), built on first use.
+    dirs: Mutex<HashMap<String, Option<Arc<Gitignore>>>>,
+}
+
+impl Filter {
+    /// `exclude`: gitignore-style globs relative to the workspace root (e.g. "vendor/", "**/*.min.js").
+    pub fn new(root: &Path, exclude: &[String]) -> Filter {
+        Filter {
+            root: root.to_path_buf(),
+            user: user_override(root, exclude),
+            dirs: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn override_rules(&self) -> Override {
+        self.user.clone()
+    }
+
+    /// A .gitignore or .ignore changed: rules are re-read on next use.
+    pub fn invalidate(&self) {
+        self.dirs.lock().clear();
+    }
+
+    pub fn allows(&self, rel: &str, is_dir: bool) -> bool {
+        let parts: Vec<&str> = rel.split('/').collect();
+        if parts.iter().any(|p| is_excluded_dir(p)) {
+            return false;
+        }
+        if self.user.matched(rel, is_dir).is_ignore() {
+            return false;
+        }
+        // Deepest directory first: a nested ignore file overrides its parents.
+        for depth in (0..parts.len()).rev() {
+            let dir = parts[..depth].join("/");
+            let Some(gi) = self.rules(&dir) else { continue };
+            let sub = parts[depth..].join("/");
+            let m = gi.matched_path_or_any_parents(&sub, is_dir);
+            if m.is_ignore() {
+                return false;
+            }
+            if m.is_whitelist() {
+                return true;
+            }
+        }
+        true
+    }
+
+    fn rules(&self, dir: &str) -> Option<Arc<Gitignore>> {
+        if let Some(r) = self.dirs.lock().get(dir) {
+            return r.clone();
+        }
+        let abs = if dir.is_empty() {
+            self.root.clone()
+        } else {
+            self.root.join(dir)
+        };
+        let mut b = GitignoreBuilder::new(&abs);
+        let mut any = false;
+        let mut files = vec![abs.join(".gitignore"), abs.join(".ignore")];
+        if dir.is_empty() {
+            files.push(abs.join(".git").join("info").join("exclude"));
+        }
+        for f in files {
+            if f.is_file() {
+                any |= b.add(&f).is_none();
+            }
+        }
+        let rules = if any {
+            b.build().ok().map(Arc::new)
+        } else {
+            None
+        };
+        self.dirs.lock().insert(dir.to_string(), rules.clone());
+        rules
+    }
+}
+
+fn user_override(root: &Path, exclude: &[String]) -> Override {
+    let mut b = OverrideBuilder::new(root);
+    for g in exclude {
+        let g = g.trim();
+        if g.is_empty() {
+            continue;
+        }
+        // Overrides are whitelists unless negated; "!" makes the glob an exclusion. A trailing
+        // slash (gitignore style, "vendor/") means the folder and everything in it.
+        let g = g.strip_prefix('/').unwrap_or(g);
+        let pat = match g.strip_suffix('/') {
+            Some(d) => format!("!{d}/**"),
+            None => format!("!{g}"),
+        };
+        if let Err(e) = b.add(&pat) {
+            eprintln!("ignoring invalid compass.exclude pattern {g:?}: {e}");
+        }
+    }
+    b.build().unwrap_or_else(|_| Override::empty())
 }
 
 pub fn rel_path(root: &Path, p: &Path) -> Option<String> {
@@ -43,7 +154,7 @@ pub fn mtime_ns(meta: &std::fs::Metadata) -> i64 {
 
 /// Walks the workspace in parallel. Calls `on_batch` with chunks as they are found so the map can
 /// show directories and files within the first seconds.
-pub fn discover(root: &Path, mut on_batch: impl FnMut(Vec<Discovered>)) -> usize {
+pub fn discover(root: &Path, filter: &Filter, mut on_batch: impl FnMut(Vec<Discovered>)) -> usize {
     let (tx, rx) = std::sync::mpsc::channel::<Discovered>();
     let root_buf: PathBuf = root.to_path_buf();
     let walker = WalkBuilder::new(root)
@@ -53,6 +164,7 @@ pub fn discover(root: &Path, mut on_batch: impl FnMut(Vec<Discovered>)) -> usize
         .git_exclude(true)
         .require_git(false)
         .follow_links(false)
+        .overrides(filter.override_rules())
         .filter_entry(|e| {
             !(e.file_type().is_some_and(|t| t.is_dir())
                 && is_excluded_dir(&e.file_name().to_string_lossy()))
@@ -535,11 +647,55 @@ mod tests {
         std::fs::write(root.join("node_modules/x/i.js"), "x").unwrap();
         std::fs::write(root.join("src/b.rs"), "x").unwrap();
         let mut found = Vec::new();
-        discover(root, |b| found.extend(b.into_iter().map(|d| d.path)));
+        discover(root, &Filter::new(root, &[]), |b| {
+            found.extend(b.into_iter().map(|d| d.path))
+        });
         found.sort();
         assert_eq!(
             found,
             vec![".gitignore".to_string(), "src/b.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn filter_agrees_with_the_walk_and_applies_user_excludes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join(".gitignore"), "target/\n*.log\n").unwrap();
+        std::fs::create_dir_all(root.join("web")).unwrap();
+        // A nested ignore file, with a re-include of one file its parent rule would hide.
+        std::fs::write(root.join("web/.gitignore"), "dist/\n!keep.log\n").unwrap();
+        let exclude = vec!["vendor/".to_string(), "**/*.min.js".to_string()];
+        let f = Filter::new(root, &exclude);
+        for (path, ok) in [
+            ("src/main.rs", true),
+            ("target/debug/build/x.rs", false),
+            ("run.log", false),
+            ("web/dist/app.js", false),
+            ("web/keep.log", true),
+            ("web/app.js", true),
+            ("vendor/lib/a.js", false),
+            ("web/jquery.min.js", false),
+            ("node_modules/x/i.js", false),
+        ] {
+            assert_eq!(f.allows(path, false), ok, "{path}");
+        }
+        // The walk honours the same user excludes.
+        for p in [
+            "vendor/lib/a.js",
+            "web/jquery.min.js",
+            "web/app.js",
+            "src/main.rs",
+        ] {
+            std::fs::create_dir_all(root.join(p).parent().unwrap()).unwrap();
+            std::fs::write(root.join(p), "x").unwrap();
+        }
+        let mut found = Vec::new();
+        discover(root, &f, |b| found.extend(b.into_iter().map(|d| d.path)));
+        found.sort();
+        assert_eq!(
+            found,
+            vec![".gitignore", "src/main.rs", "web/.gitignore", "web/app.js"]
         );
     }
 }

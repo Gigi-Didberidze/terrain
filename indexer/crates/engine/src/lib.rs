@@ -68,6 +68,10 @@ pub struct Options {
     /// Data files count as at most `layout::DATA_CAP_LINES` lines of area (setting
     /// compass.map.capDataFiles).
     pub cap_data_files: bool,
+    /// Extra gitignore-style globs to leave off the map (setting compass.exclude).
+    pub exclude: Vec<String>,
+    /// Mine git history (setting compass.history.enabled).
+    pub history: bool,
 }
 
 impl Default for Options {
@@ -75,6 +79,8 @@ impl Default for Options {
         Options {
             size_cap: DEFAULT_SIZE_CAP,
             cap_data_files: true,
+            exclude: Vec::new(),
+            history: true,
         }
     }
 }
@@ -100,6 +106,8 @@ pub struct Engine {
     analysis_gen: Arc<std::sync::atomic::AtomicU64>,
     /// Complexity per file, keyed by content hash (computed on demand).
     complexity_cache: Mutex<ComplexityCache>,
+    /// What belongs on the map (ignore files, built-in exclusions, compass.exclude).
+    pub filter: Arc<scan::Filter>,
     /// Latest git history signals; replaced atomically after each mining run.
     pub history: Arc<history::History>,
     /// Mined commits and the repository; one mining run at a time.
@@ -160,6 +168,7 @@ pub struct NodeInfo {
 
 impl Engine {
     pub fn new(root: &Path, store: Option<Store>, options: Options) -> Engine {
+        let filter = Arc::new(scan::Filter::new(root, &options.exclude));
         let name = root
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -179,6 +188,7 @@ impl Engine {
             analysis: Arc::new(analysis::Analysis::default()),
             analysis_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             complexity_cache: Mutex::new(std::collections::HashMap::new()),
+            filter,
             history: Arc::new(history::History::default()),
             git: Arc::new(Mutex::new(GitState::default())),
             review: Arc::new(review::Review::default()),
@@ -706,7 +716,8 @@ pub fn run_index(shared: &Shared, events: &dyn Events) -> Timings {
     let mut seen: HashSet<String> = HashSet::new();
     let mut to_scan: Vec<Discovered> = Vec::new();
     let mut last_emit = Instant::now();
-    let discovered = scan::discover(&root, |batch| {
+    let filter = shared.read().filter.clone();
+    let discovered = scan::discover(&root, &filter, |batch| {
         let mut e = shared.write();
         for d in batch {
             let known = e.meta_of(&d.path).copied();
@@ -866,13 +877,24 @@ fn is_project_config(path: &str) -> bool {
 /// deletes, branch switches). Re-resolves only what the change can affect. Returns true if the
 /// map changed.
 pub fn apply_changes(shared: &Shared, paths: &[String], events: &dyn Events) -> bool {
-    let (root, size_cap) = {
+    let (root, size_cap, filter) = {
         let e = shared.read();
-        (e.root.clone(), e.options.size_cap)
+        (e.root.clone(), e.options.size_cap, e.filter.clone())
     };
+    if paths
+        .iter()
+        .any(|p| p.ends_with(".gitignore") || p.ends_with(".ignore"))
+    {
+        filter.invalidate();
+    }
     let existing: Vec<Discovered> = paths
         .iter()
         .filter_map(|p| {
+            // New files must pass the same rules as the full walk; a file already on the map
+            // stays until it is deleted (or the next full index drops it).
+            if shared.read().meta_of(p).is_none() && !filter.allows(p, false) {
+                return None;
+            }
             let m = std::fs::metadata(root.join(p))
                 .ok()
                 .filter(|m| m.is_file())?;
@@ -1033,6 +1055,9 @@ pub fn run_review(shared: &Shared, events: &dyn Events) -> bool {
 /// re-clusters with the new co-change weights. Returns false when there is no repository or
 /// nothing changed. Mining runs without the engine lock; one run at a time.
 pub fn run_history(shared: &Shared, events: &dyn Events) -> bool {
+    if !shared.read().options.history {
+        return false;
+    }
     let t0 = Instant::now();
     let trace = std::env::var_os("COMPASS_TRACE").is_some();
     let git = shared.read().git.clone();
@@ -1524,6 +1549,58 @@ mod tests {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
+    }
+
+    #[test]
+    fn watched_files_in_ignored_or_excluded_folders_stay_off_the_map() {
+        let ws = workspace();
+        let r = ws.path();
+        std::fs::write(r.join(".gitignore"), "target/\n").unwrap();
+        let options = Options {
+            exclude: vec!["vendor/".into()],
+            ..Options::default()
+        };
+        let e = Engine::new(r, None, options).shared();
+        run_index(&e, &NoEvents);
+        let before = e.read().graph.file_count();
+        // A build writes into target/, someone drops code into vendor/, and a real file appears.
+        for p in ["target/debug/out.rs", "vendor/lib.rs", "src/new.rs"] {
+            std::fs::create_dir_all(r.join(p).parent().unwrap()).unwrap();
+            std::fs::write(r.join(p), "pub fn x() {}\n").unwrap();
+        }
+        let paths: Vec<String> = ["target/debug/out.rs", "vendor/lib.rs", "src/new.rs"]
+            .map(String::from)
+            .to_vec();
+        apply_changes(&e, &paths, &NoEvents);
+        let e = e.read();
+        assert_eq!(e.graph.file_count(), before + 1);
+        assert!(e.graph.slot_of_path("src/new.rs").is_some());
+        assert!(e.graph.slot_of_path("target/debug/out.rs").is_none());
+        assert!(e.graph.slot_of_path("vendor/lib.rs").is_none());
+    }
+
+    #[test]
+    fn history_can_be_switched_off() {
+        let ws = workspace();
+        if !git(ws.path(), &["init", "-q", "-b", "main"]) {
+            return;
+        }
+        git(ws.path(), &["config", "user.email", "a@example.com"]);
+        git(ws.path(), &["config", "user.name", "A"]);
+        git(ws.path(), &["add", "-A"]);
+        git(ws.path(), &["commit", "-q", "-m", "init"]);
+        let e = Engine::new(
+            ws.path(),
+            None,
+            Options {
+                history: false,
+                ..Options::default()
+            },
+        )
+        .shared();
+        run_index(&e, &NoEvents);
+        assert_eq!(e.read().history.commits, 0);
+        assert!(!run_history(&e, &NoEvents));
     }
 
     #[test]
