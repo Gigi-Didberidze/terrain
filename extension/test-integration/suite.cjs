@@ -83,9 +83,11 @@ async function run() {
     assert.deepEqual(changed, ["extra.ts (uncommitted)", "hello.ts"]);
     // main.ts imports hello.ts: it is in the blast radius.
     assert.ok(review.blast.some((b) => b.path === "main.ts"), `blast: ${JSON.stringify(review.blast)}`);
+    // The status bar may hold an earlier reading (taken before the review was computed); it
+    // must catch up.
     api.review.refresh(0);
-    for (let i = 0; i < 50 && !api.review.last; i++) await new Promise((r) => setTimeout(r, 100));
-    assert.equal(api.review.last.changedTotal, 2);
+    for (let i = 0; i < 100 && api.review.last?.changedTotal !== 2; i++) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(api.review.last?.changedTotal, 2, "status bar shows the branch's changes");
     console.log(`[compass-it] review: ${changed.join(", ")}; blast ${review.blastTotal}`);
   }
 
